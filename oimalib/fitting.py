@@ -135,7 +135,7 @@ def check_params_model(param):
         lk = param["lk"]
         cj = param["cj"]
         sj = param["sj"]
-        kc = param["kc"]
+        kc = param.get("kc", 0)
 
         flor = param["flor"]
         incl = param["incl"]
@@ -148,15 +148,15 @@ def check_params_model(param):
 
         c1 = fs + fh + fc != 1
         c2 = (incl > 90.0) | (incl < 0)
-        c3 = (pa < -180) | (pa > 180)
+        c3 = (pa < 0) | (pa > 180)
         c4 = np.invert(cond_flux)
         c5 = (la < -1) | (la > 1.5)
         c6 = (lk < -1) | (lk > 1.0)
-        c7 = (cj < -1) | (cj > 1.0)
-        c8 = (sj < -1) | (sj > 1.0)
+        # c7 = (cj < -1) | (cj > 1.0)
+        # c8 = (sj < -1) | (sj > 1.0)
         c9 = (kc < -1) | (kc > 0)
         c10 = (flor < 0) | (flor > 1)
-        if c1 | c2 | c3 | c4 | c5 | c6 | c7 | c8 | c9 | c10:
+        if c1 | c2 | c3 | c4 | c5 | c6 | c9 | c10:
             log = (
                 "# fs + fh + fc = 1,\n"
                 + "# 0 < incl < 90,\n"
@@ -960,7 +960,7 @@ def _compute_initial_dist_mcmc(
             pp = param[fitOnly[i]]
             i_p = prior[fitOnly[i]]
             m1, m2 = i_p[0], i_p[1]
-            i_range = np.random.uniform(m1, m2, nwalkers)
+            i_range = np.random.uniform(m1 * 0.98, 0.98 * m2, nwalkers)
             pos[:, i] = i_range
     elif method == "alex":
         p0 = np.array([param[fitOnly[i]] for i in range(nparam)])
@@ -1309,7 +1309,7 @@ def perform_fit_dvis(wl, dvis, e_dvis, param, double=False):
             dvis,
             err=e_dvis,
             fitOnly=fitOnly,
-            verbose=False,
+            verbose=True,
         )
         chi2 = fit["chi2"]
         if not np.isnan(chi2):

@@ -796,7 +796,7 @@ def compute_pure_line_cvis(
 
     if self_norm:
         V_cont = dvis[inCont].mean()
-        e_V_cont = 0.01 * V_cont
+        e_V_cont = dvis[inCont].std()  # 0.001 * V_cont
     else:
         V_cont = d_ft.dvis[ibl]
         e_V_cont = d_ft.e_dvis[ibl]

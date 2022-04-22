@@ -18,6 +18,10 @@ from .tools import planck_law
 from .tools import rad2mas
 
 
+def norm(x, y):
+    return np.sqrt(x ** 2 + y ** 2)
+
+
 def _elong_gauss_disk(u, v, a=1.0, cosi=1.0, pa=0.0):
     """
     Return the complex visibility of an ellongated gaussian
@@ -36,33 +40,13 @@ def _elong_gauss_disk(u, v, a=1.0, cosi=1.0, pa=0.0):
     return np.exp(-np.pi ** 2 * aq2 / (np.log(2))).astype(complex)
 
 
-# tmp_f = np.exp(
-#         -2
-#         * np.pi
-#         / np.sqrt(3)
-#         * q
-#         * a
-#         * np.sqrt((np.cos(psi - theta) * cos_i) ** 2 + (np.sin(psi - theta)) ** 2)
-#     )
 def _elong_lorentz_disk(u, v, a, cosi, pa):
-    # U = (u * np.sin(pa) + v * np.cos(pa)) * majorAxis
-    # V = (u * np.cos(pa) - v * np.sin(pa)) * minorAxis
     rPA = pa - np.deg2rad(90)
     uM = u * np.cos(rPA) - v * np.sin(rPA)
     um = +u * np.sin(rPA) + v * np.cos(rPA)
     aq = ((a * uM) ** 2 + (a * cosi * um) ** 2) ** 0.5
 
     return np.exp(-(2 * np.pi * aq) / np.sqrt(3))
-
-    # r2 = (
-    #     (2 * np.pi) * (((U ** 2 + V ** 2) ** 0.5)) / np.sqrt(3)
-    # )  # (2.31 close to gaussian fwhm)
-    # C_centered = np.exp(-r2)
-    # return C_centered
-
-
-def norm(x, y):
-    return np.sqrt(x ** 2 + y ** 2)
 
 
 def _elong_ring(u, v, a=1.0, cosi=1.0, pa=0.0, c1=0.0, s1=0.0):
@@ -89,51 +73,11 @@ def _elong_ring(u, v, a=1.0, cosi=1.0, pa=0.0, c1=0.0, s1=0.0):
     if rho1 == 0:
         mod = 0
     else:
-        # print(1.0j * rho1 * np.cos(psi - phi1) * special.jv(1, z))
         mod = -1.0j * rho1 * np.cos(psi - phi1) * special.jv(1, z)
 
     # Visibility
     v = special.jv(0, z) + mod
     return v.astype(complex)
-
-
-def _azimuth_modulation_mod(u, v, lam, pa, cosi, ar, cj, sj):
-    q = np.sqrt(u ** 2 + (cosi * v) ** 2) / lam
-    psi = np.arctan2(u, v)
-
-    rho_j = np.sqrt(cj ** 2 + sj ** 2)
-    theta_j = np.arctan2(sj, cj)
-    theta = pa
-
-    sum_mod = complex(0, 0)
-    if not hasattr(cj, "__len__"):
-        sum_mod += (
-            (-1j)
-            * rho_j
-            * np.cos(psi - theta_j)
-            * special.jn(
-                2 * np.pi * q * ar,
-                1,
-            )
-        )
-    else:
-        for i in range(1, len(rho_j) + 1):
-            sum_mod += (
-                (-1j) ** i
-                * rho_j[i - 1]
-                * np.cos(i * (psi - theta - theta_j[i - 1]))
-                * special.jn(
-                    2
-                    * np.pi
-                    * q
-                    * ar
-                    * np.sqrt(
-                        (np.cos(psi - theta) * cosi) ** 2 + np.sin(psi - theta) ** 2
-                    ),
-                    i,
-                )
-            )
-    return sum_mod
 
 
 def visPointSource(Utable, Vtable, Lambda, param):
@@ -199,38 +143,39 @@ def visUniformDisk(Utable, Vtable, Lambda, param):
     Params:
     -------
     diam: {float}
-        Diameter of the disk [rad],\n
+        Diameter of the disk [mas],\n
     x0, y0: {float}
-        Shift along x and y position [rad].
+        Shift along x and y position [mas].
     """
     u = Utable / Lambda[:, None]
     v = Vtable / Lambda[:, None]
+
+    x0 = mas2rad(param.get("x0", 0))
+    y0 = mas2rad(param.get("y0", 0))
 
     diam = mas2rad(param["diam"])
 
     r = np.sqrt(u ** 2 + v ** 2)
 
     C_centered = 2 * special.j1(np.pi * r * diam) / (np.pi * r * diam)
-    C = shiftFourier(
-        Utable, Vtable, Lambda, C_centered, mas2rad(param["x0"]), mas2rad(param["y0"])
-    )
+    C = shiftFourier(Utable, Vtable, Lambda, C_centered, x0, y0)
     return C
 
 
 def visEllipticalUniformDisk(Utable, Vtable, Lambda, param):
     """
-    Compute complex visibility of a elliplical uniform disk
+    Compute complex visibility of a elliptical uniform disk.
 
     Params:
     -------
     majorAxis: {float}
-        Major axis of the disk [rad],\n
-    elong: {float}
-        Elongation ratio (i.e: major = elong * minor),\n
-    angle: {float}
+        Major axis of the disk [mas],\n
+    incl: {float}
+        Inclination (i.e: minorAxis = cos(incl) * majorAxis),\n
+    pa: {float}
         Orientation of the disk [deg],\n
     x0, y0: {float}
-        Shift along x and y position [rad].
+        Shift along x and y position [mas].
     """
     u = Utable / Lambda[:, None]
     v = Vtable / Lambda[:, None]
@@ -240,8 +185,8 @@ def visEllipticalUniformDisk(Utable, Vtable, Lambda, param):
     majorAxis = mas2rad(param["majorAxis"])
     minorAxis = elong * majorAxis
     angle = np.deg2rad(param["pa"])
-    x0 = mas2rad(param["x0"])
-    y0 = mas2rad(param["y0"])
+    x0 = mas2rad(param.get("x0", 0))
+    y0 = mas2rad(param.get("y0", 0))
 
     r = np.sqrt(
         ((u * np.sin(angle) + v * np.cos(angle)) * majorAxis) ** 2
@@ -291,13 +236,13 @@ def visEllipticalGaussianDisk(Utable, Vtable, Lambda, param):
     Params:
     -------
     majorAxis: {float}
-        Major axis of the disk [,as],\n
-    minorAxis: {float}
-        Minor axis of the disk [rad],\n
-    angle: {float}
-        Orientation of the disk [rad],\n
+        Major axis of the disk [mas],\n
+    incl: {float}
+        Inclination of the disk [deg],\n
+    pa: {float}
+        Orientation of the disk [deg],\n
     x0, y0: {float}
-        Shift along x and y position [rad].
+        Shift along x and y position [mas].
     """
     u = Utable / Lambda[:, None]
     v = Vtable / Lambda[:, None]
@@ -307,8 +252,8 @@ def visEllipticalGaussianDisk(Utable, Vtable, Lambda, param):
     majorAxis = mas2rad(param["majorAxis"])
     minorAxis = elong * majorAxis
     angle = np.deg2rad(param["pa"])
-    x0 = param["x0"]
-    y0 = param["y0"]
+    x0 = param.get("x0", 0)
+    y0 = param.get("y0", 0)
 
     r2 = (
         (np.pi ** 2)
@@ -332,11 +277,11 @@ def visCont(Utable, Vtable, Lambda, param):
     Params:
     -------
     `fwhm` {float}:
-        Full major axis of the disk [rad],\n
+        Full major axis of the disk [mas],\n
     `incl` {float}:
-        Inclination (minorAxis = `majorAxis` * elong (`elong` = cos(`incl`)),\n
+        Inclination (minorAxis = `majorAxis` * elong (`elong` = cos(`incl`)) [deg],\n
     `pa` {float}:
-        Orientation of the disk (from north to East) [rad],\n
+        Orientation of the disk (from north to East) [deg],\n
     `fratio` {float}:
         Stellar to total flux ratio (i.e: 1/fratio = f* [%]),\n
     `rstar` {float}:
@@ -378,11 +323,11 @@ def visYSO(Utable, Vtable, Lambda, param):
     Params:
     -------
     `hfr` {float}:
-        Half major axis of the disk [rad],\n
+        Half major axis of the disk [mas],\n
     `incl` {float}:
         Inclination (minorAxis = `majorAxis` * elong (`elong` = cos(`incl`)),\n
     `pa` {float}:
-        Orientation of the disk (from north to East) [rad],\n
+        Orientation of the disk (from north to East) [deg],\n
     `fs` {float}:
         Flux contribution of the star [%],\n
     `fc` {float}:
@@ -423,9 +368,9 @@ def visLazareff(Utable, Vtable, Lambda, param):
         Weighting for radial profile (0 gaussian kernel,
         1 Lorentizian kernel),\n
     `incl` {float}:
-        Inclination (minorAxis = `majorAxis` * elong (`elong` = cos(`incl`)),\n
+        Inclination (minorAxis = `majorAxis` * elong (`elong` = cos(`incl`)) [deg],\n
     `pa` {float}:
-        Orientation of the disk (from north to East) [rad],\n
+        Orientation of the disk (from north to East) [deg],\n
     `fs` {float}:
         Flux contribution of the star [%],\n
     `fc` {float}:
@@ -557,7 +502,7 @@ def visLazareff_halo(Utable, Vtable, Lambda, param):
             "pa": param["pa"],
             "incl": param["incl"],
             "fwhm": 2 * ak,
-            "flor": param["flor"],
+            "flor": param.get("flor", 0),
         }
         Vkernel = visEllipsoid(Utable, Vtable, Lambda, param_ker)
     elif param["type"] == "uniform":
@@ -581,8 +526,8 @@ def visLazareff_halo(Utable, Vtable, Lambda, param):
         _elong_ring(u, v, a=semi_majorAxis, cosi=elong, pa=pa, c1=cj, s1=sj) * Vkernel
     )
 
-    ks = param["ks"]
-    kc = param["kc"]
+    ks = param.get("ks", 0)
+    kc = param.get("kc", 0)
     wl0 = 2.2e-6
 
     fs_lambda = fs * (wl0 / Lambda) ** ks
@@ -649,7 +594,7 @@ def visLazareff_line(Utable, Vtable, Lambda, param):
         "pa": param["pa"],
         "incl": param["incl"],
         "fwhm": ak,
-        "flor": param["flor"],
+        "flor": param.get("flor", 0),
     }
 
     Vkernel = visEllipsoid(Utable, Vtable, Lambda, param_ker)
@@ -788,7 +733,7 @@ def visEllipsoid(Utable, Vtable, Lambda, param):
     Params:
     -------
     `fwhm` {float}:
-        FWHM of the disk,\n
+        FWHM of the disk [mas],\n
     `incl` {float}:
         Inclination of the disk [deg],\n
     `pa` {float}:
