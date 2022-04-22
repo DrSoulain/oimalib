@@ -106,7 +106,17 @@ def test_plot_model_with_obs(example_oifits_grav):
     d = oimalib.load(example_oifits_grav, simu=True)
     param = {"model": "binary", "x0": 0, "y0": 0, "sep": 3, "pa": 45, "dm": 3}
     wl = 2e-6
-    obs = oimalib.format_obs(d)
-    oimalib.plot_image_model(wl, base_max=130, param=param, fov=50, npts=64, obs=obs)
+    oimalib.plot_image_model(wl, base_max=130, param=param, fov=50, npts=64, data=d)
     assert isinstance(d, dict)
     assert plt.gcf().number == 1
+
+
+@pytest.mark.usefixtures("close_figures")
+@pytest.mark.parametrize("choice", ["mas", "arcsec"])
+def test_plot_grid_model(example_model, example_oifits_grav, choice):
+    d = oimalib.load(example_oifits_grav, simu=True)
+    grid = oimalib.model2grid(example_model)
+    oimalib.plotting.plot_complex_model(grid, data=d, unit_im=choice, rotation=90)
+    oimalib.plotting.plot_complex_model(grid, data=d, unit_vis="arcsec")
+    assert isinstance(d, dict)
+    assert plt.gcf().number == 2

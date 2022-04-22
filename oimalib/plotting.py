@@ -25,6 +25,8 @@ from uncertainties import unumpy
 
 from oimalib.complex_models import visGaussianDisk
 from oimalib.fitting import check_params_model
+from oimalib.fitting import format_obs
+from oimalib.fitting import get_mcmc_results
 from oimalib.fitting import model_flux
 from oimalib.fitting import model_flux_red_abs
 from oimalib.fitting import model_pcshift
@@ -78,7 +80,7 @@ err_pts_style = {
     "ms": 5,
 }
 
-err_pts_style2 = {
+err_pts_style_pco = {
     "linestyle": "None",
     "capsize": 1,
     "ecolor": "#364f6b",
@@ -90,98 +92,7 @@ err_pts_style2 = {
 }
 
 
-def _update_color_bl(tab):
-    data = tab[0]
-    array_name = data.info["Array"]
-    nbl_master = len(set(data.blname))
-
-    if array_name == "CHARA":
-        unknown_color = plt.cm.turbo(np.linspace(0, 1, nbl_master))
-    else:
-        unknown_color = plt.cm.Set2(np.linspace(0, 1, 8))
-
-    i_cycle = 0
-    for j in range(len(tab)):
-        data = tab[j]
-        nbl = data.blname.shape[0]
-        for i in range(nbl):
-            base = data.blname[i]
-            if base not in dic_color.keys():
-                dic_color[base] = unknown_color[i_cycle]
-                i_cycle += 1
-    return dic_color
-
-
-def _create_match_tel(data):
-    dic_index = {}
-    for i in range(len(data.index_ref)):
-        ind = data.index_ref[i]
-        tel = data.teles_ref[i]
-        if ind not in dic_index.keys():
-            dic_index[ind] = tel
-    return dic_index
-
-
-def check_closed_triplet(data, i=0):
-    U = [data.u1[i], data.u2[i], data.u3[i], data.u1[i]]
-    V = [data.v1[i], data.v2[i], data.v3[i], data.v1[i]]
-
-    triplet = data.cpname[i]
-    fig = plt.figure(figsize=[5, 4.5])
-    plt.plot(U, V, label=triplet)
-    plt.legend()
-    plt.plot(0, 0, "r+")
-    plt.grid(alpha=0.2)
-    plt.xlabel("U [m]")
-    plt.ylabel("V [m]")
-    plt.tight_layout()
-    return fig
-
-
-def plot_tellu(label=None, plot_ind=False, val=5000, lw=0.5):
-    file_tellu = pkg_resources.resource_stream(
-        "oimalib", "internal_data/Telluric_lines.txt"
-    )
-    tellu = np.loadtxt(file_tellu, skiprows=1)
-    file_tellu.close()
-    plt.axvline(np.nan, lw=lw, c="gray", alpha=0.5, label=label)
-    for i in range(len(tellu)):
-        plt.axvline(tellu[i], lw=lw, c="crimson", ls="--", alpha=0.5)
-        if plot_ind:
-            plt.text(tellu[i], val, i, fontsize=7, c="crimson")
-
-
-def _plot_uvdata_coord(tab, ax=None, rotation=0):
-    """Plot u-v coordinated of a bunch of data (see `plot_uv()`)."""
-    if (type(tab) != list) & (type(tab) != np.ndarray):
-        tab = [tab]
-
-    dic_color = _update_color_bl(tab)
-
-    list_bl = []
-    for data in tab:
-        nbl = data.blname.shape[0]
-        for bl in range(nbl):
-            flag = np.invert(data.flag_vis2[bl])
-            u = data.u[bl] / data.wl[flag] / 1e6
-            v = data.v[bl] / data.wl[flag] / 1e6
-            base, label = data.blname[bl], ""
-
-            vis2 = data.vis2[bl]
-            if len(vis2[~np.isnan(vis2)]) == 0:
-                continue
-
-            if base not in list_bl:
-                label = base
-                list_bl.append(base)
-
-            p_color = dic_color[base]
-            angle = np.deg2rad(rotation)
-            um = np.squeeze(u * np.cos(angle) - v * np.sin(angle))
-            vm = np.squeeze(u * np.sin(angle) + v * np.cos(angle))
-            ax.plot(um, vm, color=p_color, label=label, marker="o", ms=4)
-            ax.plot(-um, -vm, ms=4, color=p_color, marker="o")
-    return None
+# Plot data and models (mainly V2 and CP)
 
 
 def plot_oidata(
@@ -194,12 +105,9 @@ def plot_oidata(
     v2max=1.2,
     log=False,
     is_nrm=False,
-    ms_model=2,
-    set_cp=1,
     color=False,
-    plot_vis2=True,
+    plot_amp=True,
     force_freq=None,
-    title="",
     mega=False,
 ):
     """
@@ -208,8 +116,7 @@ def plot_oidata(
     Parameters:
     -----------
     `tab` {list}:
-        list containing of data from load() function (size corresponding to the
-        number of files),\n
+        list of data from amical.load(),\n
     `use_flag` {boolean}:
         If True, use flag from the oifits file (selected if select_data()
         was used before),\n
@@ -219,11 +126,17 @@ def plot_oidata(
     `cp_max` {float}:
         Limit maximum along Y-axis of CP data plot,\n
     `v2min`, `v2max` {float}:
-        Limit maximum along Y-axis of V2 data plot,\n
+        Limits along Y-axis of V2 data plot,\n
     `log` {boolean}:
         If True, display the Y-axis of the V2 plot in log scale,\n
     `is_nrm` {boolean}:
-        If True, data come from NRM data.
+        If True, data come from NRM data,\n
+    `plot_amp` {boolean}:
+        If True, amplitude visibility are plotted instead of V2,\n
+    `force_freq` {list}, optionnal:
+        Limits of the spatial frequencies [arcsec-1],\n
+    `mega` {boolean}:
+        If True, spatial frequencies are set in Mλ.
     """
 
     if (type(tab) == list) | (type(tab) == np.ndarray):
@@ -232,6 +145,7 @@ def plot_oidata(
         data = tab
         tab = [tab]
 
+    ms_model = 2
     dic_color = _update_color_bl(tab)
 
     array_name = data.info["Array"]
@@ -264,18 +178,17 @@ def plot_oidata(
 
     ncp_master = len(set(list_triplet))
 
-    fig = plt.figure(figsize=(8, 6))
-    ax1 = plt.subplot2grid((5, 1), (0, 0), rowspan=3)
-    ax1.set_title(title, fontsize=14)
-    list_bl = []
-    # PLOT VIS2 DATA AND MODEL IF ANY (mod_v2)
-    # ----------------------------------------
-
-    if plot_vis2:
+    if not plot_amp:
         ylabel = r"V$^2$"
     else:
         ylabel = r"Vis. Amp."
 
+    fig = plt.figure(figsize=(8, 6))
+    ax1 = plt.subplot2grid((5, 1), (0, 0), rowspan=3)
+    list_bl = []
+
+    # PLOT VIS2 DATA AND MODEL IF ANY (mod_v2)
+    # ----------------------------------------
     ndata = len(tab)
     for j in range(ndata):
         data = tab[j]
@@ -288,7 +201,7 @@ def plot_oidata(
                 sel_flag = [True] * nwl
 
             freq_vis2 = data.freq_vis2[i][sel_flag]
-            if plot_vis2:
+            if not plot_amp:
                 vis2 = data.vis2[i][sel_flag]
                 e_vis2 = data.e_vis2[i][sel_flag]
             else:
@@ -347,7 +260,7 @@ def plot_oidata(
                         )
 
             if mod_v2 is not None:
-                if plot_vis2:
+                if not plot_amp:
                     mod = mod_v2[j][i][sel_flag]
                 else:
                     mod = mod_v2[j][i][sel_flag] ** 0.5
@@ -408,6 +321,8 @@ def plot_oidata(
     ax1.set_ylabel(ylabel, fontsize=12)
     ax1.grid(alpha=0.3)
 
+    set_cp = 1
+    ms_model = 2
     # PLOT CP DATA AND MODEL IF ANY (mod_cp)
     # --------------------------------------
     ax2 = plt.subplot2grid((5, 1), (3, 0), rowspan=2)
@@ -417,21 +332,7 @@ def plot_oidata(
             ax2.set_prop_cycle("color", plt.cm.turbo(np.linspace(0, 1, ncp_master)))
         elif array_name == "VLTI":
             fontsize = 7
-            if set_cp == 0:
-                ax2.set_prop_cycle(
-                    "color",
-                    [
-                        "#f4dfcc",
-                        "#fa9583",
-                        "#2f4159",
-                        "#4097aa",
-                        "#82b4bb",
-                        "#ae3c60",
-                        "#eabd6f",
-                        "#96d47c",
-                    ],
-                )
-            elif set_cp == 1:
+            if set_cp == 1:
                 ax2.set_prop_cycle(
                     "color",
                     [
@@ -540,6 +441,8 @@ def plot_uv(tab, bmax=150, rotation=0):
         list containing of data from OiFile2Class function (size corresponding to the number of files),\n
     `bmax` {float}:
         Limits of the plot [Mlambda],\n
+    `rotation` {float}:
+        Rotate the u-v plan.
     """
 
     if (type(tab) == list) or (type(tab) == np.ndarray):
@@ -581,8 +484,38 @@ def plot_uv(tab, bmax=150, rotation=0):
 
 
 def plot_residuals(
-    data, param, fitOnly=None, hue=None, use_flag=True, save_dir=None, name=""
+    data,
+    param,
+    fitOnly=None,
+    use_flag=True,
+    hue=None,
+    save_dir=None,
+    name=None,
+    verbose=True,
 ):
+    """
+    Plot the comparison between data vs model and the corresponding residuals
+    [in σ] for the V2 and CP.
+
+    Parameters:
+    -----------
+    `data` {list, dict}:
+        data or list of data from amical.load(),\n
+    `param` {dict}:
+        Parameters of the model,\n
+    `fitOnly` {list}:
+        List of fitted parameters to compute the degree of freedom,\n
+    `use_flag` {boolean}:
+        If True, use flag from the oifits file (selected if select_data()
+        was used before),\n
+    `hue` {str}:
+        Key to be displayed in color (e.g.: 'wl'),\n
+    `save_dir` {str}, optionnal:
+        If set, the figure is saved in `save_dir` as *`name`*.png,\n
+    """
+
+    if name is None:
+        name = ""
     sns.set_theme(color_codes=True)
     if fitOnly is None:
         print("Warning: FitOnly is None, the degree of freedom is set to 0.\n")
@@ -601,10 +534,10 @@ def plot_residuals(
         "hue": hue,
         "use_flag": use_flag,
     }
-    df_cp, chi2_cp, chi2_cp_full, mod_cp = plot_cp_residuals(**param_plot)
+    df_cp, chi2_cp, chi2_cp_full, mod_cp = _plot_cp_residuals(**param_plot)
     if save_dir is not None:
         plt.savefig(save_dir + "residuals_CP_%sfit.png" % name, dpi=300)
-    df_v2, chi2_vis2, chi2_vis2_full, mod_v2 = plot_v2_residuals(**param_plot)
+    df_v2, chi2_vis2, chi2_vis2_full, mod_v2 = _plot_v2_residuals(**param_plot)
     if save_dir is not None:
         plt.savefig(save_dir + "residuals_V2_%sfit.png" % name, dpi=300)
 
@@ -628,396 +561,17 @@ def plot_residuals(
 
     chi2_global = np.sum((obs - all_mod) ** 2 / (e_obs) ** 2) / (nobs - (d_freedom - 1))
     title = "Statistic of the model %s" % param["model"]
-    print(title)
-    print("-" * len(title))
-    print(f"χ² = {chi2_global:2.2f} (V² = {chi2_vis2:2.1f}, CP = {chi2_cp:2.1f})")
+    if verbose:
+        print(title)
+        print("-" * len(title))
+        print(f"χ² = {chi2_global:2.2f} (V² = {chi2_vis2:2.1f}, CP = {chi2_cp:2.1f})")
     return chi2_global, chi2_vis2, chi2_cp, mod_v2, mod_cp, chi2_vis2_full, chi2_cp_full
-
-
-def plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
-    if fitOnly is None:
-        fitOnly = []
-    # mod_v2 = compute_geom_model(data, param)[0]
-
-    l_mod = compute_geom_model_fast(data, param)
-    mod_v2 = []
-    for i in range(len(l_mod)):
-        mod_v2.append(l_mod[i]["vis2"])
-
-    input_keys = ["vis2", "e_vis2", "freq_vis2", "wl", "blname", "set", "flag_vis2"]
-
-    dict_obs = {}
-    for k in input_keys:
-        dict_obs[k] = []
-
-    nobs = 0
-    for d in data:
-        for k in input_keys:
-            nbl = d.vis2.shape[0]
-            nwl = d.vis2.shape[1]
-            if k == "wl":
-                for _ in range(nbl):
-                    dict_obs[k].extend(np.round(d[k] * 1e6, 3))
-            elif k == "blname":
-                for j in range(nbl):
-                    for _ in range(nwl):
-                        dict_obs[k].append(d[k][j])
-            elif k == "set":
-                for _ in range(nbl):
-                    for _ in range(nwl):
-                        dict_obs[k].append(nobs)
-            else:
-                dict_obs[k].extend(d[k].flatten())
-        nobs += 1
-
-    dict_obs["mod"] = np.array(mod_v2).flatten()
-
-    dict_obs["res"] = (dict_obs["vis2"] - dict_obs["mod"]) / dict_obs["e_vis2"]
-
-    flag = np.array(dict_obs["flag_vis2"])
-    flag_nan = np.isnan(np.array(dict_obs["vis2"]))
-
-    if use_flag:
-        for k in dict_obs.keys():
-            dict_obs[k] = np.array(dict_obs[k])[~flag & ~flag_nan]
-
-    df = pd.DataFrame(dict_obs)
-
-    d_freedom = len(fitOnly)
-
-    chi2_vis2_full = np.sum((df["vis2"] - df["mod"]) ** 2 / (df["e_vis2"]) ** 2)
-    chi2_vis2 = chi2_vis2_full / (len(df["e_vis2"]) - (d_freedom - 1))
-
-    label = "DATA"
-    if hue == "wl":
-        label = "Wavelenght [µm]"
-
-    fig = plt.figure(constrained_layout=False, figsize=(7, 7))
-    axd = fig.subplot_mosaic(
-        [["vis2"], ["res_vis2"]],
-        gridspec_kw={"height_ratios": [3, 1]},
-    )
-    ax = sns.scatterplot(
-        x="freq_vis2",
-        y="vis2",
-        data=df,
-        palette="crest",
-        zorder=10,
-        label=label,
-        ax=axd["vis2"],
-        style=None,
-        hue=hue,
-    )
-    sns.scatterplot(
-        x="freq_vis2",
-        y="mod",
-        data=df,
-        color="#e19751",
-        zorder=10,
-        marker="^",
-        label=r"MODEL ($\chi^2_r=%2.2f$)" % chi2_vis2,
-        ax=axd["vis2"],
-    )
-    ax.errorbar(
-        df.freq_vis2,
-        df.vis2,
-        yerr=df.e_vis2,
-        fmt="None",
-        zorder=1,
-        color="gray",
-        alpha=0.4,
-        capsize=2,
-    )
-    sns.scatterplot(
-        x="freq_vis2",
-        y="res",
-        data=df,
-        zorder=10,
-        ax=axd["res_vis2"],
-    )
-    axd["res_vis2"].sharex(axd["vis2"])
-    plt.xlabel(r"Sp. Freq. [arcsec$^{-1}$]")
-    axd["vis2"].set_ylabel("V$^{2}$")
-    axd["vis2"].set_xlabel("")
-    axd["res_vis2"].set_ylabel(r"Residuals [$\sigma$]")
-    axd["res_vis2"].axhspan(-1, 1, alpha=0.6, color="#418fde")
-    axd["res_vis2"].axhspan(-2, 2, alpha=0.6, color="#8bb8e8")
-    axd["res_vis2"].axhspan(-3, 3, alpha=0.6, color="#c8d8eb")
-    axd["res_vis2"].set_ylim(-5, 5)
-
-    axd["vis2"].tick_params(
-        axis="x",  # changes apply to the x-axis
-        which="major",  # both major and minor ticks are affected
-        bottom=False,  # ticks along the bottom edge are off
-        top=False,  # ticks along the top edge are off
-        labelbottom=False,  # labels along the bottom edge are off)
-    )
-    plt.subplots_adjust(hspace=0.1, top=0.98, right=0.98, left=0.11)
-    return df, chi2_vis2, chi2_vis2_full, mod_v2
-
-
-def plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
-    if fitOnly is None:
-        fitOnly = []
-    # mod_cp = compute_geom_model(data, param)[1]
-
-    l_mod = compute_geom_model_fast(data, param, use_flag=False)
-    mod_cp = []
-    for i in range(len(l_mod)):
-        mod_cp.append(l_mod[i]["cp"])
-
-    input_keys = ["cp", "e_cp", "freq_cp", "wl", "cpname", "set", "flag_cp"]
-
-    dict_obs = {}
-    for k in input_keys:
-        dict_obs[k] = []
-
-    nobs = 0
-    for d in data:
-        for k in input_keys:
-            nbl = d.cp.shape[0]
-            nwl = d.cp.shape[1]
-            if k == "wl":
-                for _ in range(nbl):
-                    dict_obs[k].extend(np.round(d[k] * 1e6, 3))
-            elif k == "cpname":
-                for j in range(nbl):
-                    for _ in range(nwl):
-                        dict_obs[k].append(d[k][j])
-            elif k == "set":
-                for _ in range(nbl):
-                    for _ in range(nwl):
-                        dict_obs[k].append(nobs)
-            else:
-                dict_obs[k].extend(d[k].flatten())
-        nobs += 1
-
-    dict_obs["mod"] = np.array(mod_cp).flatten()
-    dict_obs["res"] = (dict_obs["cp"] - dict_obs["mod"]) / dict_obs["e_cp"]
-
-    if use_flag:
-        flag = np.array(dict_obs["flag_cp"])
-        flag_nan = np.isnan(np.array(dict_obs["cp"]))
-        for k in dict_obs.keys():
-            dict_obs[k] = np.array(dict_obs[k])[~flag & ~flag_nan]
-
-    df = pd.DataFrame(dict_obs)
-
-    d_freedom = len(fitOnly)
-
-    chi2_cp_full = np.sum((df["cp"] - df["mod"]) ** 2 / (df["e_cp"]) ** 2)
-    chi2_cp = chi2_cp_full / (len(df["e_cp"]) - (d_freedom - 1))
-
-    res_max = 5
-    if np.max(abs(df["res"])) >= 5:
-        res_max = abs(df["res"]).max() * 1.2
-
-    fig = plt.figure(constrained_layout=False, figsize=(7, 7))
-    axd = fig.subplot_mosaic(
-        [["cp"], ["res_cp"]],
-        gridspec_kw={"height_ratios": [3, 1]},
-    )
-    label = "DATA"
-    if hue == "wl":
-        label = "Wavelenght [µm]"
-    ax = sns.scatterplot(
-        x="freq_cp",
-        y="cp",
-        data=df,
-        palette="crest",
-        zorder=10,
-        label=label,
-        ax=axd["cp"],
-        style=None,
-        hue=hue,
-    )
-    sns.scatterplot(
-        x="freq_cp",
-        y="mod",
-        data=df,
-        color="#e19751",
-        zorder=10,
-        marker="^",
-        label=r"MODEL ($\chi^2_r=%2.2f$)" % chi2_cp,
-        ax=axd["cp"],
-    )
-    ax.errorbar(
-        df.freq_cp,
-        df.cp,
-        yerr=df.e_cp,
-        fmt="None",
-        zorder=1,
-        color="gray",
-        alpha=0.4,
-        capsize=2,
-    )
-    sns.scatterplot(
-        x="freq_cp",
-        y="res",
-        data=df,
-        zorder=10,
-        ax=axd["res_cp"],
-    )
-    axd["res_cp"].sharex(axd["cp"])
-    plt.xlabel(r"Sp. Freq. [arcsec$^{-1}$]")
-    axd["cp"].set_ylabel(r"Closure phase $\phi$ [deg]")
-    axd["cp"].set_xlabel("")
-    axd["res_cp"].set_ylabel(r"Residuals [$\sigma$]")
-    axd["res_cp"].axhspan(-1, 1, alpha=0.6, color="#418fde")
-    axd["res_cp"].axhspan(-2, 2, alpha=0.6, color="#8bb8e8")
-    axd["res_cp"].axhspan(-3, 3, alpha=0.6, color="#c8d8eb")
-    axd["res_cp"].set_ylim(-res_max, res_max)
-
-    axd["cp"].tick_params(
-        axis="x",  # changes apply to the x-axis
-        which="major",  # both major and minor ticks are affected
-        bottom=False,  # ticks along the bottom edge are off
-        top=False,  # ticks along the top edge are off
-        labelbottom=False,  # labels along the bottom edge are off)
-    )
-    plt.subplots_adjust(hspace=0.1, top=0.98, right=0.98, left=0.11)
-    return df, chi2_cp, chi2_cp_full, mod_cp
-
-
-def plot_complex_model(
-    grid,
-    data=None,
-    i_sp=0,
-    bmax=100,
-    unit_im="mas",
-    unit_vis="lambda",
-    p=0.5,
-    rotation=0,
-):
-    """Plot model and corresponding visibility and phase plan. Additionallly, you
-        can add data to show the u-v coverage compare to model.
-
-    Parameters
-    ----------
-    `grid` : {class}
-        Class generated using model2grid function,\n
-    `i_sp` : {int}, optional
-        Index number of the wavelength to display (in case of datacube), by default 0\n
-    `bmax` : {int}, optional
-        Maximum baseline to restrein the visibility field of view, by default 20\n
-    `unit_im` : {str}, optional
-        Unit of the spatial coordinates (model), by default 'arcsec'\n
-    `unit_vis` : {str}, optional
-        Unit of the complex coordinates (fft), by default 'lambda'\n
-    `data` : {class}, optional
-        Class containing oifits data (see OiFile2Class or dir2data function), by default None\n
-    `p` : {float}, optional
-        Normalization factor of the image, by default 0.5\n
-    """
-    fmin = grid.freq.min()
-    fmax = grid.freq.max()
-    fov = grid.fov
-    if unit_im == "mas":
-        f2 = 1
-    else:
-        unit_im = "arcsec"
-        f2 = 1000.0
-
-    if unit_vis == "lambda":
-        f = 1e6
-    elif unit_vis == "arcsec":
-        f = rad2mas(1) / 1000.0
-
-    extent_im = np.array([fov / 2.0, -fov / 2.0, -fov / 2.0, fov / 2.0]) / f2
-    extent_vis = np.array([fmin, fmax, fmin, fmax]) / f
-
-    fft2D = grid.fft
-    cube = grid.cube
-
-    im_phase = np.rad2deg(abs(np.angle(fft2D)[i_sp])[:, ::-1])
-    im_amp = np.abs(fft2D)[i_sp][:, ::-1]
-    im_model = cube[i_sp]
-
-    wl_model = grid.wl[i_sp]
-
-    umax = 2 * bmax / wl_model / f
-    ax_vis = [-umax, umax, -umax, umax]
-    modelname = grid.name
-
-    fig, axs = plt.subplots(1, 3, figsize=(14, 5))
-    axs[0].set_title(fr'Model "{modelname}" ($\lambda$ = {wl_model * 1e6:2.2f} $\mu$m)')
-    axs[0].imshow(
-        im_model, norm=PowerNorm(p), origin="lower", extent=extent_im, cmap="afmhot"
-    )
-    axs[0].set_xlabel(r"$\Delta$RA [%s]" % (unit_im))
-    axs[0].set_ylabel(r"$\Delta$DEC [%s]" % (unit_im))
-
-    axs[1].set_title(r"Squared visibilities (V$^2$)")
-    axs[1].imshow(
-        im_amp ** 2,
-        norm=PowerNorm(1),
-        origin="lower",
-        extent=extent_vis,
-        cmap="gist_earth",
-    )
-    axs[1].axis(ax_vis)
-    axs[1].plot(0, 0, "r+")
-
-    if data is not None:
-        _plot_uvdata_coord(data, ax=axs[1], rotation=rotation)
-
-    if unit_vis == "lambda":
-        axs[1].set_xlabel(r"U [M$\lambda$]")
-        axs[1].set_ylabel(r"V [M$\lambda$]")
-    else:
-        axs[1].set_xlabel(r"U [arcsec$^{-1}$]")
-        axs[1].set_ylabel(r"V [arcsec$^{-1}$]")
-
-    # plt.subplot(1, 3, 3)
-    axs[2].set_title("Phase [deg]")
-    axs[2].imshow(
-        im_phase,
-        norm=PowerNorm(1),
-        origin="lower",
-        extent=extent_vis,
-        cmap="gist_earth",
-    )
-    axs[2].plot(0, 0, "r+")
-
-    if unit_vis == "lambda":
-        axs[2].set_xlabel(r"U [M$\lambda$]")
-        axs[2].set_ylabel(r"V [M$\lambda$]")
-    else:
-        axs[2].set_xlabel(r"U [arcsec$^{-1}$]")
-        axs[2].set_ylabel(r"V [arcsec$^{-1}$]")
-    axs[2].axis(ax_vis)
-    plt.tight_layout()
-    plt.show(block=False)
-    return fig, axs
-
-
-def symmetrical_colormap(cmap_settings, new_name=None):
-    """This function take a colormap and create a new one, as the concatenation of itself by a symmetrical fold."""
-    # get the colormap
-    cmap = plt.cm.get_cmap(*cmap_settings)
-    if not new_name:
-        new_name = "sym_" + cmap_settings[0]  # ex: 'sym_Blues'
-
-    # this defined the roughness of the colormap, 128 fine
-    n = 128
-
-    # get the list of color from colormap
-    colors_r = cmap(np.linspace(0, 1, n))  # take the standard colormap # 'right-part'
-    colors_l = colors_r[
-        ::-1
-    ]  # take the first list of color and flip the order # "left-part"
-
-    # combine them and build a new colormap
-    colors = np.vstack((colors_l, colors_r))
-    mymap = mcolors.LinearSegmentedColormap.from_list(new_name, colors)
-
-    return mymap
 
 
 def plot_image_model(
     wl,
-    base_max,
     param,
+    base_max=130,
     npts=128,
     fov=400,
     blm=130,
@@ -1025,34 +579,40 @@ def plot_image_model(
     hamming=True,
     cont=False,
     p=0.5,
-    obs=None,
+    data=None,
     apod=False,
     corono=False,
     expert_plot=False,
     verbose=False,
 ):
     """
-    Make the image of the `multiCompoPwhl` function.
+    Compute and plot the image for the model based on `param` dictionnary.
 
     Parameters:
     -----------
     `wl` {float}:
         Wavelength of the observation [m],\n
-    `mjd` {float}:
-        Date of observation [mjd],\n
+    `param` {dict}:
+        Dictionnary of the model parameters,\n
     `base_max` {float}:
         Maximum baseline (of single dish) used to convolved the model
         with a gaussian PSF [m],\n
     `blm` {float}:
         Maximum baseline to limit the spatial frequencies plot,\n
-    `param` {dict}:
-        Dictionnary of parameters of the `multiCompoPwhl` function,\n
     `npts` {int}:
         Number of pixels in the image,\n
     `fov` {float}:
         Field of view of the image [mas],\n
+    `hamming` {boolean}:
+        If True, hamming windowing is used to reduce artifact,\n
+    `cont` {boolean}:
+        If True, add contours of the intensity values,\n
+    `corono` {boolean}:
+        If True, remove the central pixel,\n
+    `expert_plot` {boolean}:
+        If True, plot additional figure (for 'pwhl' model),\n
     `display` {boolean}:
-        If True, plots are showed.
+        If True, plots are showed,\n
 
     Outputs:
     --------
@@ -1158,11 +718,16 @@ def plot_image_model(
     ima_conv_orient /= np.max(ima_conv_orient)
     rb = rad2arcsec(2 * blm / wl)
 
-    # image_orient[image_orient < 0.02] = 0
-    # corono = True
     if corono:
         image_orient[npts // 2, npts // 2 - 1] = 0
         image_orient /= np.max(image_orient)
+
+    # Convert data to the appropriate format (to be fixed)
+    obs = None
+    if data is not None:
+        if type(data) is not list:
+            data = [data]
+        obs = np.concatenate([format_obs(x) for x in data])
 
     plt.figure(figsize=(13, 3.5), dpi=120)
     plt.subplots_adjust(
@@ -1251,6 +816,118 @@ def plot_image_model(
     return image_orient, ima_conv_orient, xScales, uv_scale, norm_amp, pixel_size
 
 
+def plot_complex_model(
+    grid,
+    data=None,
+    i_sp=0,
+    bmax=100,
+    unit_im="mas",
+    unit_vis="lambda",
+    p=0.5,
+    rotation=0,
+):
+    """Plot model and corresponding visibility and phase plan. Additionallly, you
+        can add data to show the u-v coverage compare to model.
+
+    Parameters
+    ----------
+    `grid` : {class}
+        Class generated using model2grid function,\n
+    `i_sp` : {int}, optional
+        Index number of the wavelength to display (in case of datacube), by default 0\n
+    `bmax` : {int}, optional
+        Maximum baseline to restrein the visibility field of view, by default 20\n
+    `unit_im` : {str}, optional
+        Unit of the spatial coordinates (model), by default 'arcsec'\n
+    `unit_vis` : {str}, optional
+        Unit of the complex coordinates (fft), by default 'lambda'\n
+    `data` : {class}, optional
+        Class containing oifits data (see oimalib.load()), by default None\n
+    `p` : {float}, optional
+        Normalization factor of the image, by default 0.5\n
+    """
+    fmin = grid.freq.min()
+    fmax = grid.freq.max()
+    fov = grid.fov
+    if unit_im == "mas":
+        f2 = 1
+    else:
+        unit_im = "arcsec"
+        f2 = 1000.0
+
+    if unit_vis == "lambda":
+        f = 1e6
+    elif unit_vis == "arcsec":
+        f = rad2mas(1) / 1000.0
+
+    extent_im = np.array([fov / 2.0, -fov / 2.0, -fov / 2.0, fov / 2.0]) / f2
+    extent_vis = np.array([fmin, fmax, fmin, fmax]) / f
+
+    fft2D = grid.fft
+    cube = grid.cube
+
+    im_phase = np.rad2deg(abs(np.angle(fft2D)[i_sp])[:, ::-1])
+    im_amp = np.abs(fft2D)[i_sp][:, ::-1]
+    im_model = cube[i_sp]
+
+    wl_model = grid.wl[i_sp]
+
+    umax = 2 * bmax / wl_model / f
+    ax_vis = [-umax, umax, -umax, umax]
+    modelname = grid.name
+
+    fig, axs = plt.subplots(1, 3, figsize=(14, 5))
+    axs[0].set_title(fr'Model "{modelname}" ($\lambda$ = {wl_model * 1e6:2.2f} $\mu$m)')
+    axs[0].imshow(
+        im_model, norm=PowerNorm(p), origin="lower", extent=extent_im, cmap="afmhot"
+    )
+    axs[0].set_xlabel(r"$\Delta$RA [%s]" % (unit_im))
+    axs[0].set_ylabel(r"$\Delta$DEC [%s]" % (unit_im))
+
+    axs[1].set_title(r"Squared visibilities (V$^2$)")
+    axs[1].imshow(
+        im_amp ** 2,
+        norm=PowerNorm(1),
+        origin="lower",
+        extent=extent_vis,
+        cmap="gist_earth",
+    )
+    axs[1].axis(ax_vis)
+    axs[1].plot(0, 0, "r+")
+
+    if data is not None:
+        _plot_uvdata_coord(data, ax=axs[1], rotation=rotation)
+
+    if unit_vis == "lambda":
+        axs[1].set_xlabel(r"U [M$\lambda$]")
+        axs[1].set_ylabel(r"V [M$\lambda$]")
+    else:
+        axs[1].set_xlabel(r"U [arcsec$^{-1}$]")
+        axs[1].set_ylabel(r"V [arcsec$^{-1}$]")
+
+    # plt.subplot(1, 3, 3)
+    axs[2].set_title("Phase [deg]")
+    axs[2].imshow(
+        im_phase,
+        norm=PowerNorm(1),
+        origin="lower",
+        extent=extent_vis,
+        cmap="gist_earth",
+    )
+    axs[2].plot(0, 0, "r+")
+
+    if unit_vis == "lambda":
+        axs[2].set_xlabel(r"U [M$\lambda$]")
+        axs[2].set_ylabel(r"V [M$\lambda$]")
+    else:
+        axs[2].set_xlabel(r"U [arcsec$^{-1}$]")
+        axs[2].set_ylabel(r"V [arcsec$^{-1}$]")
+    axs[2].axis(ax_vis)
+    plt.tight_layout()
+    plt.show(block=False)
+    return fig, axs
+
+
 def plot_spectra(
     data,
     aver=False,
@@ -1337,19 +1014,6 @@ def plot_spectra(
     return wave, spec
 
 
-def nan_interp(yall):
-    """
-    Interpolate nan from non-nan values.
-    Along the last dimension if several of them.
-    """
-    if len(yall.shape) > 1:
-        for y in yall:
-            nan_interp(y)
-    else:
-        nans, x = np.isnan(yall), lambda z: z.nonzero()[0]
-        yall[nans] = np.interp(x(nans), x(~nans), yall[~nans])
-
-
 def plot_dvis(
     data,
     bounds=None,
@@ -1371,7 +1035,14 @@ def plot_dvis(
     `bounds` {list}:
         Wavelengths range (by default around Br Gamma line 2.166 µm, [2.14, 2.19]),\n
     `line` {float}:
-        Vertical line reference to be plotted (by default, Br Gamma line 2.166 µm)\n
+        Vertical line reference to be plotted (by default, Br Gamma line 2.166
+        µm),\n
+    `dvis_range`, `dphi_range` {float}:
+        Range of dvis and dphi around the normalized values (normalized by the
+        continuum)\n
+    `norm_vis`, `norm_phi` {boolean}:
+        If True, renormalized the differential quantities by the continuum (self
+        reference).\n
     """
     if bounds is None:
         bounds = [2.14, 2.19]
@@ -1583,41 +1254,50 @@ def plot_dvis(
     return fig
 
 
-def _summary_corner_sns(x, prec=2, color="#ee9068", **kwargs):
-    t_unit = {
-        "f$_c$": "%",
-        "incl": "deg",
-        "i": "deg",
-        "a$_r*$": r"r$_{star}$",
-        "a$_r$": "mas",
-        "PA": "deg",
-        "c$_j$": "",
-        "s$_j$": "",
-        "l$_a$": "",
-        "$r$": "AU",
+# Plot MCMC related results
+
+
+def plot_mcmc_walker(sampler, param, fitOnly, burnin=100, savedir=None):
+    """Plot walkers for the different iteration. `burnin` is the number of
+    points to be ignored (first iterations). `fitOnly` is the list of fitted
+    parameters. `param` is the dictionnary containing the initial parameters of
+    the model. If `savedir` is given, the figure in saved."""
+    fit_mcmc = get_mcmc_results(sampler, param, fitOnly=fitOnly, burnin=burnin)
+
+    dict_label = {
+        "fc": "f$_c$ [%]",
+        "fh": "f$_h$ [%]",
+        "la": "l$_a$",
+        "incl": "i [deg]",
+        "pa": "PA [deg]",
+        "cj": "c$_j$",
+        "sj": "s$_j$",
     }
-    mcmc = np.percentile(x, [16, 50, 84])
-    q = np.diff(mcmc)
-    txt = r"{3} = {0:.%if}$_{{-{1:.%if}}}^{{+{2:.%if}}}$ {4}" % (prec, prec, prec)
-    try:
-        txt = txt.format(mcmc[1], q[0], q[1], x.name, t_unit[x.name])
-    except KeyError:
-        txt = txt.format(mcmc[1], q[0], q[1], x.name, "")
-    ax = plt.gca()
-    ax.set_axis_off()
-    ax.axvline(mcmc[0], lw=1, color=color, alpha=0.8, ls="--")
-    ax.axvline(mcmc[1], lw=1, color=color, alpha=0.8, ls="-")
-    ax.axvline(mcmc[2], lw=1, color=color, alpha=0.8, ls="--")
-    ax.set_title(txt, fontsize=9)
 
+    labels_mcmc = [dict_label.get(x, x) for x in fitOnly]
 
-def _results_corner_sns(x, y, color="#ee9068", **kwargs):
-    p1 = np.percentile(x, [16, 50, 84])
-    p2 = np.percentile(y, [16, 50, 84])
-    ax = plt.gca()
-    ax.plot(p1[1], p2[1], "s", color=color, alpha=0.8)
-    ax.axvline(p1[1], lw=1, color=color, alpha=0.8)
-    ax.axhline(p2[1], lw=1, color=color, alpha=0.8)
+    ndim = len(fitOnly)
+
+    sns.set_theme(color_codes=True)
+    sns.set_context("talk", font_scale=0.9)
+    fig, axes = plt.subplots(ndim, figsize=(7, 8.5), sharex=True)
+    samples = sampler.get_chain()
+    for i in range(ndim):
+        ax = axes[i]
+        ax.plot(samples[:, :, i], "b", alpha=0.5)
+        p = fit_mcmc["best"][fitOnly[i]]
+        em = fit_mcmc["uncer"][fitOnly[i] + "_m"]
+        ep = fit_mcmc["uncer"][fitOnly[i] + "_p"]
+        ax.axhline(p, color="#ee9068")
+        ax.axhspan(p - em, p + ep, color="#ee9068", alpha=0.3)
+        ax.set_xlim(0, len(samples) - 10)
+        ax.set_ylabel(labels_mcmc[i])
+        ax.yaxis.set_label_coords(-0.15, 0.5)
+    axes[-1].set_xlabel("N iteration")
+    plt.subplots_adjust(top=0.98, bottom=0.08, left=0.17, right=0.982)
+    if savedir is not None:
+        plt.savefig(savedir + "walkers_%s_MCMC.png" % (param["model"]), dpi=300)
+    return fig
 
 
 def plot_mcmc_results(
@@ -1689,90 +1369,7 @@ def plot_mcmc_results(
     return g
 
 
-def plot_diffobs_model(dobs, data, dobs_full=None, speed=False):
-    wl0 = dobs.p_line
-    if speed:
-        wave3 = ((dobs.wl - wl0) / wl0) * c_light / 1e3
-        if dobs_full is not None:
-            wave4 = ((dobs_full.wl - wl0) / wl0) * c_light / 1e3
-    else:
-        wave3 = dobs.wl
-        if dobs_full is not None:
-            wave4 = dobs_full.wl
-
-    sns.set_theme(color_codes=True)
-    sns.set_context("talk", font_scale=0.9)
-    fig = plt.figure(figsize=(6, 6))
-    plt.subplot(3, 1, 1)
-    # plt.plot(wl_plot, flux_plot, "g*", zorder=6, ms=5)
-    plt.scatter(
-        wave3,
-        dobs.flux,
-        s=40,
-        c=wave3,
-        cmap="coolwarm",
-        marker="s",
-        linewidth=0.5,
-        edgecolor="k",
-        zorder=3,
-    )
-    plt.plot(
-        wave4,
-        dobs_full.flux,
-        lw=1,
-    )
-    plt.ylabel("Norm. Flux")
-    frame1 = plt.gca()
-    frame1.tick_params(axis="x", colors="w")
-
-    plt.subplot(3, 1, 2)
-    frame2 = plt.gca()
-    # plt.plot(wl_plot, dvis_plot, "g*", zorder=6, ms=5)
-    plt.scatter(
-        wave3,
-        dobs.dvis,
-        s=40,
-        c=wave3,
-        cmap="coolwarm",
-        marker="s",
-        linewidth=0.5,
-        edgecolor="k",
-        zorder=3,
-    )
-    plt.plot(wave4, dobs_full.dvis, lw=1)
-    props = dict(boxstyle="round", facecolor="wheat", alpha=0.5)
-    plt.text(
-        0.05,
-        0.3,
-        "%s (%i m)" % (data.blname[dobs.ibl], data.bl[dobs.ibl]),
-        transform=frame2.transAxes,
-        fontsize=13,
-        verticalalignment="top",
-        bbox=props,
-    )
-    plt.ylabel("Diff. Vis.")
-    frame2.tick_params(axis="x", colors="w")
-    plt.subplot(3, 1, 3)
-    # plt.plot(wl_plot, dphi_plot, "g*", zorder=6, ms=5)
-    plt.scatter(
-        wave3,
-        dobs.dphi,
-        s=40,
-        c=wave3,
-        cmap="coolwarm",
-        marker="s",
-        linewidth=0.5,
-        edgecolor="k",
-        zorder=3,
-    )
-    plt.plot(wave4, dobs_full.dphi, lw=1)
-    plt.ylabel("Diff. Phase [deg]")
-    if speed:
-        plt.xlabel("Velocity [km/s]")
-    else:
-        plt.xlabel("Wavelengths [µm]")
-    plt.subplots_adjust(left=0.17, right=0.98, top=0.99)
-    return fig
+# Plot differential quantities results (photocenter shift, offset and pure line)
 
 
 def plot_pcs(pcs, speed=True, r=None, dpc=None, xlim=50):
@@ -1842,7 +1439,6 @@ def plot_pcs(pcs, speed=True, r=None, dpc=None, xlim=50):
     ax.axhline(0, ls="-", color="gray", lw=1)
     ax.set_aspect("equal", adjustable="box")
     plt.tight_layout()
-    # plt.subplots_adjust(bottom=0.13, left=0.16, top=0.98, right=0.82)
     return fig
 
 
@@ -1882,14 +1478,14 @@ def plot_pco(output_pco, pcs, iwl_pc=0, pc_max=0.2):
             yerr=pco[i, iwl_pc].std_dev,
             label=label,
             color=color_bl,
-            **err_pts_style2,
+            **err_pts_style_pco,
         )
         plt.errorbar(
             bl_pa[i] - 180,
             -pco[i, iwl_pc].nominal_value,
             yerr=pco[i, iwl_pc].std_dev,
             color=color_bl,
-            **err_pts_style2,
+            **err_pts_style_pco,
         )
 
     props = dict(boxstyle="round", facecolor="wheat", alpha=0.5)
@@ -1921,7 +1517,7 @@ def plot_pco(output_pco, pcs, iwl_pc=0, pc_max=0.2):
 
 
 def plot_cvis_pure(pure, flc, phi_max=5, vis_range=None):
-    """ """
+    """Plot pure line visibility and phase with the spectrum."""
     if vis_range is None:
         vis_range = [0, 1.1]
     wl = flc["wl"]
@@ -2058,6 +1654,506 @@ def plot_cvis_pure(pure, flc, phi_max=5, vis_range=None):
     plt.ylim(-phi_max, phi_max)
     plt.tight_layout()
     return ax2
+
+
+# dependant functions for main
+# ============================
+
+
+def _update_color_bl(tab):
+    data = tab[0]
+    array_name = data.info["Array"]
+    nbl_master = len(set(data.blname))
+
+    if array_name == "CHARA":
+        unknown_color = plt.cm.turbo(np.linspace(0, 1, nbl_master))
+    else:
+        unknown_color = plt.cm.Set2(np.linspace(0, 1, 8))
+
+    i_cycle = 0
+    for j in range(len(tab)):
+        data = tab[j]
+        nbl = data.blname.shape[0]
+        for i in range(nbl):
+            base = data.blname[i]
+            if base not in dic_color.keys():
+                dic_color[base] = unknown_color[i_cycle]
+                i_cycle += 1
+    return dic_color
+
+
+def _create_match_tel(data):
+    dic_index = {}
+    for i in range(len(data.index_ref)):
+        ind = data.index_ref[i]
+        tel = data.teles_ref[i]
+        if ind not in dic_index.keys():
+            dic_index[ind] = tel
+    return dic_index
+
+
+def check_closed_triplet(data, i=0):
+    U = [data.u1[i], data.u2[i], data.u3[i], data.u1[i]]
+    V = [data.v1[i], data.v2[i], data.v3[i], data.v1[i]]
+
+    triplet = data.cpname[i]
+    fig = plt.figure(figsize=[5, 4.5])
+    plt.plot(U, V, label=triplet)
+    plt.legend()
+    plt.plot(0, 0, "r+")
+    plt.grid(alpha=0.2)
+    plt.xlabel("U [m]")
+    plt.ylabel("V [m]")
+    plt.tight_layout()
+    return fig
+
+
+def plot_tellu(label=None, plot_ind=False, val=5000, lw=0.5):
+    file_tellu = pkg_resources.resource_stream(
+        "oimalib", "internal_data/Telluric_lines.txt"
+    )
+    tellu = np.loadtxt(file_tellu, skiprows=1)
+    file_tellu.close()
+    plt.axvline(np.nan, lw=lw, c="gray", alpha=0.5, label=label)
+    for i in range(len(tellu)):
+        plt.axvline(tellu[i], lw=lw, c="crimson", ls="--", alpha=0.5)
+        if plot_ind:
+            plt.text(tellu[i], val, i, fontsize=7, c="crimson")
+
+
+def _plot_uvdata_coord(tab, ax=None, rotation=0):
+    """Plot u-v coordinated of a bunch of data (see `plot_uv()`)."""
+    if (type(tab) != list) & (type(tab) != np.ndarray):
+        tab = [tab]
+
+    dic_color = _update_color_bl(tab)
+
+    list_bl = []
+    for data in tab:
+        nbl = data.blname.shape[0]
+        for bl in range(nbl):
+            flag = np.invert(data.flag_vis2[bl])
+            u = data.u[bl] / data.wl[flag] / 1e6
+            v = data.v[bl] / data.wl[flag] / 1e6
+            base, label = data.blname[bl], ""
+
+            vis2 = data.vis2[bl]
+            if len(vis2[~np.isnan(vis2)]) == 0:
+                continue
+
+            if base not in list_bl:
+                label = base
+                list_bl.append(base)
+
+            p_color = dic_color[base]
+            angle = np.deg2rad(rotation)
+            um = np.squeeze(u * np.cos(angle) - v * np.sin(angle))
+            vm = np.squeeze(u * np.sin(angle) + v * np.cos(angle))
+            ax.plot(um, vm, color=p_color, label=label, marker="o", ms=4)
+            ax.plot(-um, -vm, ms=4, color=p_color, marker="o")
+    return None
+
+
+def _plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
+    if fitOnly is None:
+        fitOnly = []
+
+    l_mod = compute_geom_model_fast(data, param)
+    mod_v2 = []
+    for i in range(len(l_mod)):
+        mod_v2.append(l_mod[i]["vis2"])
+
+    input_keys = ["vis2", "e_vis2", "freq_vis2", "wl", "blname", "set", "flag_vis2"]
+
+    dict_obs = {}
+    for k in input_keys:
+        dict_obs[k] = []
+
+    nobs = 0
+    for d in data:
+        for k in input_keys:
+            nbl = d.vis2.shape[0]
+            nwl = d.vis2.shape[1]
+            if k == "wl":
+                for _ in range(nbl):
+                    dict_obs[k].extend(np.round(d[k] * 1e6, 3))
+            elif k == "blname":
+                for j in range(nbl):
+                    for _ in range(nwl):
+                        dict_obs[k].append(d[k][j])
+            elif k == "set":
+                for _ in range(nbl):
+                    for _ in range(nwl):
+                        dict_obs[k].append(nobs)
+            else:
+                dict_obs[k].extend(d[k].flatten())
+        nobs += 1
+
+    dict_obs["mod"] = np.array(mod_v2).flatten()
+
+    dict_obs["res"] = (dict_obs["vis2"] - dict_obs["mod"]) / dict_obs["e_vis2"]
+
+    flag = np.array(dict_obs["flag_vis2"])
+    flag_nan = np.isnan(np.array(dict_obs["vis2"]))
+
+    if use_flag:
+        for k in dict_obs.keys():
+            dict_obs[k] = np.array(dict_obs[k])[~flag & ~flag_nan]
+
+    df = pd.DataFrame(dict_obs)
+
+    d_freedom = len(fitOnly)
+
+    chi2_vis2_full = np.sum((df["vis2"] - df["mod"]) ** 2 / (df["e_vis2"]) ** 2)
+    chi2_vis2 = chi2_vis2_full / (len(df["e_vis2"]) - (d_freedom - 1))
+
+    label = "DATA"
+    if hue == "wl":
+        label = "Wavelenght [µm]"
+
+    fig = plt.figure(constrained_layout=False, figsize=(7, 7))
+    axd = fig.subplot_mosaic(
+        [["vis2"], ["res_vis2"]],
+        gridspec_kw={"height_ratios": [3, 1]},
+    )
+    ax = sns.scatterplot(
+        x="freq_vis2",
+        y="vis2",
+        data=df,
+        palette="crest",
+        zorder=10,
+        label=label,
+        ax=axd["vis2"],
+        style=None,
+        hue=hue,
+    )
+
+    sns.scatterplot(
+        x="freq_vis2",
+        y="mod",
+        data=df,
+        color="#e19751",
+        zorder=10,
+        marker="^",
+        label=r"MODEL ($\chi^2_r=%2.2f$)" % chi2_vis2,
+        ax=axd["vis2"],
+    )
+    ax.errorbar(
+        df.freq_vis2,
+        df.vis2,
+        yerr=df.e_vis2,
+        fmt="None",
+        zorder=1,
+        color="gray",
+        alpha=0.4,
+        capsize=2,
+    )
+    sns.scatterplot(
+        x="freq_vis2",
+        y="res",
+        data=df,
+        zorder=10,
+        ax=axd["res_vis2"],
+    )
+    axd["res_vis2"].sharex(axd["vis2"])
+    plt.xlabel(r"Sp. Freq. [arcsec$^{-1}$]")
+    axd["vis2"].set_ylabel("V$^{2}$")
+    axd["vis2"].set_xlabel("")
+    axd["vis2"].set_ylim([0, 1.1])
+    axd["res_vis2"].set_ylabel(r"Residuals [$\sigma$]")
+    axd["res_vis2"].axhspan(-1, 1, alpha=0.6, color="#418fde")
+    axd["res_vis2"].axhspan(-2, 2, alpha=0.6, color="#8bb8e8")
+    axd["res_vis2"].axhspan(-3, 3, alpha=0.6, color="#c8d8eb")
+    axd["res_vis2"].set_ylim(-5, 5)
+
+    axd["vis2"].tick_params(
+        axis="x",  # changes apply to the x-axis
+        which="major",  # both major and minor ticks are affected
+        bottom=False,  # ticks along the bottom edge are off
+        top=False,  # ticks along the top edge are off
+        labelbottom=False,  # labels along the bottom edge are off)
+    )
+    plt.subplots_adjust(hspace=0.1, top=0.98, right=0.98, left=0.11)
+    return df, chi2_vis2, chi2_vis2_full, mod_v2
+
+
+def _plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
+    if fitOnly is None:
+        fitOnly = []
+
+    l_mod = compute_geom_model_fast(data, param, use_flag=False)
+    mod_cp = []
+    for i in range(len(l_mod)):
+        mod_cp.append(l_mod[i]["cp"])
+
+    input_keys = ["cp", "e_cp", "freq_cp", "wl", "cpname", "set", "flag_cp"]
+
+    dict_obs = {}
+    for k in input_keys:
+        dict_obs[k] = []
+
+    nobs = 0
+    for d in data:
+        for k in input_keys:
+            nbl = d.cp.shape[0]
+            nwl = d.cp.shape[1]
+            if k == "wl":
+                for _ in range(nbl):
+                    dict_obs[k].extend(np.round(d[k] * 1e6, 3))
+            elif k == "cpname":
+                for j in range(nbl):
+                    for _ in range(nwl):
+                        dict_obs[k].append(d[k][j])
+            elif k == "set":
+                for _ in range(nbl):
+                    for _ in range(nwl):
+                        dict_obs[k].append(nobs)
+            else:
+                dict_obs[k].extend(d[k].flatten())
+        nobs += 1
+
+    dict_obs["mod"] = np.array(mod_cp).flatten()
+    dict_obs["res"] = (dict_obs["cp"] - dict_obs["mod"]) / dict_obs["e_cp"]
+
+    if use_flag:
+        flag = np.array(dict_obs["flag_cp"])
+        flag_nan = np.isnan(np.array(dict_obs["cp"]))
+        for k in dict_obs.keys():
+            dict_obs[k] = np.array(dict_obs[k])[~flag & ~flag_nan]
+
+    df = pd.DataFrame(dict_obs)
+
+    d_freedom = len(fitOnly)
+
+    chi2_cp_full = np.sum((df["cp"] - df["mod"]) ** 2 / (df["e_cp"]) ** 2)
+    chi2_cp = chi2_cp_full / (len(df["e_cp"]) - (d_freedom - 1))
+
+    res_max = 5
+    if np.max(abs(df["res"])) >= 5:
+        res_max = abs(df["res"]).max() * 1.2
+
+    fig = plt.figure(constrained_layout=False, figsize=(7, 7))
+    axd = fig.subplot_mosaic(
+        [["cp"], ["res_cp"]],
+        gridspec_kw={"height_ratios": [3, 1]},
+    )
+    label = "DATA"
+    if hue == "wl":
+        label = "Wavelenght [µm]"
+    ax = sns.scatterplot(
+        x="freq_cp",
+        y="cp",
+        data=df,
+        palette="crest",
+        zorder=10,
+        label=label,
+        ax=axd["cp"],
+        style=None,
+        hue=hue,
+    )
+    sns.scatterplot(
+        x="freq_cp",
+        y="mod",
+        data=df,
+        color="#e19751",
+        zorder=10,
+        marker="^",
+        label=r"MODEL ($\chi^2_r=%2.2f$)" % chi2_cp,
+        ax=axd["cp"],
+    )
+    ax.errorbar(
+        df.freq_cp,
+        df.cp,
+        yerr=df.e_cp,
+        fmt="None",
+        zorder=1,
+        color="gray",
+        alpha=0.4,
+        capsize=2,
+    )
+    sns.scatterplot(
+        x="freq_cp",
+        y="res",
+        data=df,
+        zorder=10,
+        ax=axd["res_cp"],
+    )
+    axd["res_cp"].sharex(axd["cp"])
+    plt.xlabel(r"Sp. Freq. [arcsec$^{-1}$]")
+    axd["cp"].set_ylabel(r"Closure phase $\phi$ [deg]")
+    axd["cp"].set_xlabel("")
+    axd["cp"].set_ylim(-10, 10)
+    axd["res_cp"].set_ylabel(r"Residuals [$\sigma$]")
+    axd["res_cp"].axhspan(-1, 1, alpha=0.6, color="#418fde")
+    axd["res_cp"].axhspan(-2, 2, alpha=0.6, color="#8bb8e8")
+    axd["res_cp"].axhspan(-3, 3, alpha=0.6, color="#c8d8eb")
+    axd["res_cp"].set_ylim(-res_max, res_max)
+
+    axd["cp"].tick_params(
+        axis="x",  # changes apply to the x-axis
+        which="major",  # both major and minor ticks are affected
+        bottom=False,  # ticks along the bottom edge are off
+        top=False,  # ticks along the top edge are off
+        labelbottom=False,  # labels along the bottom edge are off)
+    )
+    plt.subplots_adjust(hspace=0.1, top=0.98, right=0.98, left=0.11)
+    return df, chi2_cp, chi2_cp_full, mod_cp
+
+
+def symmetrical_colormap(cmap_settings, new_name=None):
+    """This function take a colormap and create a new one, as the concatenation of itself by a symmetrical fold."""
+    # get the colormap
+    cmap = plt.cm.get_cmap(*cmap_settings)
+    if not new_name:
+        new_name = "sym_" + cmap_settings[0]  # ex: 'sym_Blues'
+
+    # this defined the roughness of the colormap, 128 fine
+    n = 128
+
+    # get the list of color from colormap
+    colors_r = cmap(np.linspace(0, 1, n))  # take the standard colormap # 'right-part'
+    colors_l = colors_r[
+        ::-1
+    ]  # take the first list of color and flip the order # "left-part"
+
+    # combine them and build a new colormap
+    colors = np.vstack((colors_l, colors_r))
+    mymap = mcolors.LinearSegmentedColormap.from_list(new_name, colors)
+
+    return mymap
+
+
+def nan_interp(yall):
+    """
+    Interpolate nan from non-nan values.
+    Along the last dimension if several of them.
+    """
+    if len(yall.shape) > 1:
+        for y in yall:
+            nan_interp(y)
+    else:
+        nans, x = np.isnan(yall), lambda z: z.nonzero()[0]
+        yall[nans] = np.interp(x(nans), x(~nans), yall[~nans])
+
+
+def _summary_corner_sns(x, prec=2, color="#ee9068", **kwargs):
+    t_unit = {
+        "f$_c$": "%",
+        "incl": "deg",
+        "i": "deg",
+        "a$_r*$": r"r$_{star}$",
+        "a$_r$": "mas",
+        "PA": "deg",
+        "c$_j$": "",
+        "s$_j$": "",
+        "l$_a$": "",
+        "$r$": "AU",
+    }
+    mcmc = np.percentile(x, [16, 50, 84])
+    q = np.diff(mcmc)
+    txt = r"{3} = {0:.%if}$_{{-{1:.%if}}}^{{+{2:.%if}}}$ {4}" % (prec, prec, prec)
+    try:
+        txt = txt.format(mcmc[1], q[0], q[1], x.name, t_unit[x.name])
+    except KeyError:
+        txt = txt.format(mcmc[1], q[0], q[1], x.name, "")
+    ax = plt.gca()
+    ax.set_axis_off()
+    ax.axvline(mcmc[0], lw=1, color=color, alpha=0.8, ls="--")
+    ax.axvline(mcmc[1], lw=1, color=color, alpha=0.8, ls="-")
+    ax.axvline(mcmc[2], lw=1, color=color, alpha=0.8, ls="--")
+    ax.set_title(txt, fontsize=9)
+
+
+def _results_corner_sns(x, y, color="#ee9068", **kwargs):
+    p1 = np.percentile(x, [16, 50, 84])
+    p2 = np.percentile(y, [16, 50, 84])
+    ax = plt.gca()
+    ax.plot(p1[1], p2[1], "s", color=color, alpha=0.8)
+    ax.axvline(p1[1], lw=1, color=color, alpha=0.8)
+    ax.axhline(p2[1], lw=1, color=color, alpha=0.8)
+
+
+def plot_diffobs_model(dobs, data, dobs_full=None, speed=False):
+    wl0 = dobs.p_line
+    if speed:
+        wave3 = ((dobs.wl - wl0) / wl0) * c_light / 1e3
+        if dobs_full is not None:
+            wave4 = ((dobs_full.wl - wl0) / wl0) * c_light / 1e3
+    else:
+        wave3 = dobs.wl
+        if dobs_full is not None:
+            wave4 = dobs_full.wl
+
+    sns.set_theme(color_codes=True)
+    sns.set_context("talk", font_scale=0.9)
+    fig = plt.figure(figsize=(6, 6))
+    plt.subplot(3, 1, 1)
+    plt.scatter(
+        wave3,
+        dobs.flux,
+        s=40,
+        c=wave3,
+        cmap="coolwarm",
+        marker="s",
+        linewidth=0.5,
+        edgecolor="k",
+        zorder=3,
+    )
+    plt.plot(
+        wave4,
+        dobs_full.flux,
+        lw=1,
+    )
+    plt.ylabel("Norm. Flux")
+    frame1 = plt.gca()
+    frame1.tick_params(axis="x", colors="w")
+
+    plt.subplot(3, 1, 2)
+    frame2 = plt.gca()
+    plt.scatter(
+        wave3,
+        dobs.dvis,
+        s=40,
+        c=wave3,
+        cmap="coolwarm",
+        marker="s",
+        linewidth=0.5,
+        edgecolor="k",
+        zorder=3,
+    )
+    plt.plot(wave4, dobs_full.dvis, lw=1)
+    props = dict(boxstyle="round", facecolor="wheat", alpha=0.5)
+    plt.text(
+        0.05,
+        0.3,
+        "%s (%i m)" % (data.blname[dobs.ibl], data.bl[dobs.ibl]),
+        transform=frame2.transAxes,
+        fontsize=13,
+        verticalalignment="top",
+        bbox=props,
+    )
+    plt.ylabel("Diff. Vis.")
+    frame2.tick_params(axis="x", colors="w")
+    plt.subplot(3, 1, 3)
+    plt.scatter(
+        wave3,
+        dobs.dphi,
+        s=40,
+        c=wave3,
+        cmap="coolwarm",
+        marker="s",
+        linewidth=0.5,
+        edgecolor="k",
+        zorder=3,
+    )
+    plt.plot(wave4, dobs_full.dphi, lw=1)
+    plt.ylabel("Diff. Phase [deg]")
+    if speed:
+        plt.xlabel("Velocity [km/s]")
+    else:
+        plt.xlabel("Wavelengths [µm]")
+    plt.subplots_adjust(left=0.17, right=0.98, top=0.99)
+    return fig
 
 
 def plot_image_model_pcs(
