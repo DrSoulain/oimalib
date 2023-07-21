@@ -255,7 +255,7 @@ def select_data(
             if replace_err:
                 e_vis2 = extra_error_v2
             else:
-                e_vis2 = np.sqrt(old_err ** 2 + extra_error_v2 ** 2) * err_scale_v2
+                e_vis2 = np.sqrt(old_err**2 + extra_error_v2**2) * err_scale_v2
                 if seuil_v2 is not None:
                     e_vis2[e_vis2 <= seuil_v2] = seuil_v2
             data.e_vis2[i] = e_vis2
@@ -267,7 +267,7 @@ def select_data(
             if replace_err:
                 e_cp = extra_error_cp
             else:
-                e_cp = np.sqrt(old_err ** 2 + extra_error_cp ** 2) * err_scale_cp
+                e_cp = np.sqrt(old_err**2 + extra_error_cp**2) * err_scale_cp
                 if seuil_cp is not None:
                     e_cp[e_cp <= seuil_cp] = seuil_cp
             data.e_cp[j] = e_cp
@@ -381,17 +381,24 @@ def temporal_bin_data(
     `time_lim` {list, n=2}:
         Time range to compute averaged obserbables [hour] (e.g.: [0, 1] for the first hour),\n
     """
+    from astropy.io import fits
+
     blname = list_data[0].blname
     cpname = list_data[0].cpname
     if not _check_bl_same(list_data):
         return None
 
-    mjd0 = list_data[0].info.mjd
+    oi = list_data[0].info.filename
+    with fits.open(oi) as fo:
+        mjd0 = fo["OI_VIS2", None].data.field("MJD")[0]
+
     l_hour = []
     for d in list_data:
-        l_hour.append((d.info.mjd - mjd0) * 24)
+        tmp_oi = d.info.filename
+        with fits.open(tmp_oi) as fo:
+            mjd = fo["OI_VIS2", None].data.field("MJD")[0]
+        l_hour.append(round((mjd - mjd0) * 24, 1))
     l_hour = np.array(l_hour)
-
     l_hour = l_hour[~np.isnan(l_hour)]
     if len(l_hour) == 0:
         if custom_hour is not None:
@@ -405,7 +412,7 @@ def temporal_bin_data(
 
     if verbose:
         print("Observation time of the listed dataset:\n", l_hour)
-
+        print()
     if wave_lim is None:
         wave_lim = [0, 20]
 
@@ -490,6 +497,19 @@ def temporal_bin_data(
 
             dvis = d.dvis[gd][cond_wl]
             dphi = d.dphi[gd][cond_wl]
+            # flag = d.flag_dvis[gd][cond_wl]
+            # dphi[flag] = np.nan
+            import oimalib
+
+            oimalib.tools.nan_interp(dphi)
+            wl = d.wl[cond_wl] * 1e6
+            lbdBrg = lbdBrg = 2.165930
+            inCont = (np.abs(wl - lbdBrg) < 0.1) * (np.abs(wl - lbdBrg) > 0.004)
+            if False:
+                if len(wl) > 10:
+                    normalize_continuum(
+                        dphi, d.wl[cond_wl], inCont, degree=1, phase=True
+                    )
             e_dvis = d.e_dvis[gd][cond_wl]
             e_dphi = d.e_dphi[gd][cond_wl]
             e_dvis[e_dvis == 0] = np.nan
@@ -501,7 +521,7 @@ def temporal_bin_data(
     all_u, all_v = np.array(all_u), np.array(all_v)
     master_u = np.mean(all_u, axis=0)
     master_v = np.mean(all_v, axis=0)
-    B = np.sqrt(master_u ** 2 + master_v ** 2)
+    B = np.sqrt(master_u**2 + master_v**2)
 
     master_u1 = np.mean(tab_u1, axis=0)
     master_u2 = np.mean(tab_u2, axis=0)
@@ -530,9 +550,14 @@ def temporal_bin_data(
     freq_vis2 = np.array(freq_vis2)
     bl_cp = np.array(bl_cp)
 
-    weight_dvis, weight_dphi = 1.0 / tab_e_dvis ** 2, 1.0 / tab_e_dphi ** 2
-    weight_vis2 = 1.0 / tab_e_vis2 ** 2
-    weight_cp = 1.0 / tab_e_cp ** 2
+    weight_dvis, weight_dphi = 1.0 / tab_e_dvis**2, 1.0 / tab_e_dphi**2
+    weight_vis2 = 1.0 / tab_e_vis2**2
+    weight_cp = 1.0 / tab_e_cp**2
+
+    tab_dvis[np.isnan(tab_dvis)] = 0
+    weight_dvis[np.isnan(weight_dvis)] = 1e-50
+    tab_dphi[np.isnan(tab_dphi)] = 0
+    weight_dphi[np.isnan(weight_dphi)] = 1e-50
 
     dvis_m, e_dvis_m = wtmn(tab_dvis, weights=weight_dvis)
     dphi_m, e_dphi_m = wtmn(tab_dphi, weights=weight_dphi)
@@ -540,7 +565,7 @@ def temporal_bin_data(
     tab_vis2[np.isnan(tab_vis2)] = 0
     weight_vis2[np.isnan(weight_vis2)] = 1e-50
 
-    vis2_m, e_vis2_m = wtmn(tab_vis2, weights=weight_vis2)
+    vis2_m, e_vis2_m = wtmn(tab_vis2, weights=weight_vis2, cons=False)
 
     tab_cp[np.isnan(tab_cp)] = 0
     weight_cp[np.isnan(weight_cp)] = 1e-50
@@ -555,10 +580,16 @@ def temporal_bin_data(
 
     try:
         for i, d in enumerate(list_data):
-            tab_flux[i] = np.mean(d.flux[cond_flux], axis=0)[cond_wl]
+            a = np.mean(d.flux[cond_flux], axis=0)[cond_wl]
+            tab_flux[i] = a / a[0]
         master_flux = np.mean(tab_flux, axis=0)
         e_master_flux = np.std(tab_flux, axis=0)
         rel_err_flux = e_master_flux / master_flux
+        # plt.figure()
+        # plt.plot(tab_flux.T)
+        # plt.plot(master_flux, "k")
+        # plt.plot(master_flux-e_master_flux.mean(), "k--")
+        # plt.plot(master_flux+e_master_flux.mean(), "k--")
 
     except IndexError:
         master_flux = np.array([[np.nan] * len(wave)] * 4)
@@ -605,11 +636,26 @@ def temporal_bin_data(
 
 
 def normalize_dvis_continuum(
-    ibl, d, inCont, param_cont=None, force_cont=None, lbdBrg=2.1664
+    ibl,
+    d,
+    inCont,
+    param_cont=None,
+    force_cont=None,
+    lbdBrg=2.1664,
+    use_vis2=False,
 ):
     wl = d.wl * 1e6
+
     dvis = d.dvis[ibl].copy()
     e_dvis = 0.5 * d.e_dvis[ibl].copy()
+
+    if use_vis2:
+        vis2 = d.vis2[ibl].copy()
+        e_dvis2 = d.e_vis2[ibl].copy()
+        new_edvis = vis2**0.5 * 0.5 * (e_dvis2 / vis2)
+        dvis = vis2**0.5
+        e_dvis = new_edvis.copy()
+
     u = d.u[ibl]
     v = d.v[ibl]
 
@@ -639,6 +685,48 @@ def normalize_dvis_continuum(
     else:
         dvis *= force_cont
     return dvis, e_dvis
+
+
+def normalize_dphi_continuum_v2(
+    ibl, d, param_cont=None, lbdBrg=2.1664, inCont=None, cond_lim=None, degree=3
+):
+    wl = d.wl * 1e6
+    dphi = d.dphi[ibl].copy()
+    e_dphi = d.e_dphi[ibl].copy()
+    u = d.u[ibl]
+    v = d.v[ibl]
+
+    # Select region of the continuum (avoiding the BrG line)
+    if inCont is None:
+        inCont = (np.abs(wl - lbdBrg) < 0.1) * (np.abs(wl - lbdBrg) > 0.004)
+
+    if cond_lim is None:
+        cond_lim = np.array([True] * len(dphi))
+
+    dphi = dphi[cond_lim]
+    e_dphi = e_dphi[cond_lim]
+    wl = wl[cond_lim]
+
+    inCont = inCont[cond_lim]
+
+    # Interpolate the nan values
+    nan_interp(dphi)
+    nan_interp(e_dphi)
+    # Normalize continuum to one
+
+    normalize_continuum(dphi, wl, inCont, phase=True, degree=degree)
+
+    if param_cont is not None:
+        f_model = select_model(param_cont["model"])
+        complex_vis = f_model(u, v, wl * 1e-6, param_cont)[inCont]
+        X = wl[inCont] - lbdBrg
+        Y = np.angle(complex_vis, deg=True)
+        cont_mod = np.polyval(np.polyfit(X, Y, 2), wl - lbdBrg)
+    else:
+        cont_mod = 0
+
+    dphi += cont_mod
+    return dphi, e_dphi
 
 
 def normalize_dphi_continuum(ibl, d, param_cont=None, lbdBrg=2.1664):
@@ -671,11 +759,239 @@ def normalize_dphi_continuum(ibl, d, param_cont=None, lbdBrg=2.1664):
     return dphi, e_dphi
 
 
+# def compute_pure_line_cvis_v2(
+#     ibl,
+#     d,
+#     flc,
+#     d_ft=None,
+#     param_dvis=None,
+#     param_dphi=None,
+#     lbdBrg=2.1661,
+#     wBrg=0.0005,
+#     use_mod=True,
+#     self_norm=False,
+#     force_zero_dphi=None,
+#     force_zero_dvis=None,
+#     force_simple_phase=None,
+#     force_simple_vis=None,
+#     use_cont_err=True,
+#     verbose=False,
+#     ref_v2=False,
+#     r_brg=2,
+#     r_brg2=1,
+#     display=False,
+# ):
+#     if force_zero_dphi is None:
+#         force_zero_dphi = []
+#     if force_zero_dvis is None:
+#         force_zero_dvis = []
+#     if force_simple_phase is None:
+#         force_simple_phase = []
+#     if force_simple_vis is None:
+#         force_simple_vis = []
+
+#     # Extract the parameters from flc dict (from compute_flc_spectra())
+
+#     e_flux = flc.get("e_flux", 0.01)  # error on the flux
+
+#     if use_mod:
+#         F_lc = flc["F_lc"]  # fit on the normalized spectrum
+
+#     #  Compute region in and outside the line
+#     wl = d.wl * 1e6
+
+#     # inCont2 = (np.abs(wl - lbdBrg) < 0.1) * (np.abs(wl - lbdBrg) > r_brg * wBrg)
+#     inLine = np.abs(wl - lbdBrg) <= r_brg2 * wBrg
+#     # inLine2 = np.abs(wl - lbdBrg) < r_brg2 * wBrg
+#     # inCont = ~inLine2
+
+#     inCont = (np.abs(wl - lbdBrg) < 0.1) * (np.abs(wl - lbdBrg) > r_brg * wBrg)
+#     # Take the continuum from the FT camera (for GRAVITY)
+#     if self_norm:
+#         if ref_v2:
+#             cvis_in_cont = d.vis2[ibl][inCont].copy() ** 0.5
+#         else:
+#             cvis_in_cont = d.dvis[ibl][inCont].copy()
+#         nan_interp(cvis_in_cont)
+#         cont_ft = cvis_in_cont.mean()
+#     else:
+#         cont_ft = d_ft.vis2[ibl] ** 0.5
+
+#     # cont_ft *= 1.083
+#     dvis, e_dvis = normalize_dvis_continuum(
+#         ibl, d, inCont=inCont, force_cont=cont_ft, lbdBrg=lbdBrg
+#     )
+#     dphi, e_dphi = normalize_dphi_continuum_v2(ibl, d, lbdBrg=lbdBrg, inCont=inCont)
+
+#     if use_cont_err:
+#         e_dphi = np.ones(len(e_dphi)) * np.std(dphi[inCont])
+#         e_dvis = np.ones(len(e_dvis)) * np.std(dvis[inCont])
+
+#     # Fit differential obs
+#     double_phase = True
+#     double_vis = True
+#     if ibl in force_simple_phase:
+#         double_phase = False
+#     if ibl in force_simple_vis:
+#         double_vis = False
+
+#     mod_dvis, fit_dvis = perform_fit_dvis(
+#         wl,
+#         dvis,
+#         e_dvis,
+#         inCont=None,
+#         param=param_dvis,
+#         double=double_vis,
+#         display=display,
+#     )
+
+#     mod_dphi, fit_dphi = perform_fit_dphi(
+#         wl, dphi, e_dphi, param_dphi, double=double_phase, display=display,
+#     )
+
+#     if ibl in force_zero_dphi:
+#         mod_dphi = np.zeros_like(mod_dphi)
+#     if ibl in force_zero_dvis:
+#         mod_dvis = np.ones_like(mod_dvis) * fit_dvis["best"]["C"]
+
+#     if verbose:
+#         print("Results fit differentials:")
+#         print("--------------------------")
+#         print(
+#             "chi2: vis={:2.2f}, phi={:2.2f}".format(fit_dvis["chi2"], fit_dphi["chi2"])
+#         )
+
+#     # Compute pure line vis and phi
+#     if use_mod:
+#         V_tot = mod_dvis[inLine]
+#         dphi_inline = np.deg2rad(mod_dphi[inLine])
+#         F_tot = F_lc[inLine]
+#     else:
+#         V_tot = dvis[inLine]
+#         dphi_inline = np.deg2rad(dphi[inLine])
+#         try:
+#             F_tot = d.flux[inLine]
+#         except IndexError:
+#             F_tot = flc["flux"][inLine]
+
+#     e_dvis_inline = np.mean(e_dvis[inLine])
+#     e_dphi_inline = np.mean(np.deg2rad(e_dphi[inLine]))
+
+#     from uncertainties import ufloat, unumpy
+
+#     if self_norm:
+#         V_cont = dvis[inCont].mean()
+#         e_V_cont = dvis[inCont].std()
+#     else:
+#         V_cont = d_ft.vis2[ibl] ** 0.5
+#         e_V_cont = d_ft.e_dvis[ibl]
+
+#     n = len(V_tot)
+#     u_V_tot = np.array([ufloat(V_tot[i], e_dvis_inline) for i in range(n)])
+#     u_F_tot = np.array([ufloat(F_tot[i], e_flux) for i in range(n)])
+#     u_V_cont = np.array([ufloat(V_cont, e_V_cont) for i in range(n)])
+#     u_dphi_inline = np.array([ufloat(dphi_inline[i], e_dphi_inline) for i in range(n)])
+
+#     F_cont = 1
+#     u_F_line = u_F_tot - F_cont
+
+#     # u_nominator = (
+#     #     abs(u_V_tot * u_F_tot) ** 2
+#     #     + abs(u_V_cont * F_cont) ** 2
+#     #     - (2 * u_V_tot * u_F_tot * u_V_cont * F_cont * unumpy.cos(u_dphi_inline))
+#     # )
+#     # u_nominator = (
+#     #     abs(u_V_tot * (u_F_tot / (u_F_tot - 1))) ** 2
+#     #     + abs(u_V_cont * (1 / (u_F_tot - 1))) ** 2
+#     #     - (
+#     #         2
+#     #         * (u_F_tot / (u_F_tot - 1) ** 2)
+#     #         * u_V_tot
+#     #         * u_V_cont
+#     #         * unumpy.cos(u_dphi_inline)
+#     #     )
+#     # )
+#     # u_dvis_pure = u_nominator ** 0.5 / u_F_line
+
+#     u_dvis_pure = (u_F_tot * u_V_tot - u_V_cont) / (u_F_tot - 1)
+
+#     dvis_pure = unumpy.nominal_values(u_dvis_pure)
+#     e_dvis_pure = unumpy.std_devs(u_dvis_pure)
+
+#     wl_inline = wl[inLine]
+
+#     X = (u_F_tot * u_V_tot * unumpy.sin(u_dphi_inline)) / (u_F_line * u_dvis_pure)
+#     all_err = []
+#     for i in range(len(X)):
+#         all_err.append(X[i].std_dev)
+#     aver_err = np.mean(all_err)
+
+#     for i in range(len(X)):
+#         if X[i].std_dev >= 1:
+#             a = ufloat(X[i].nominal_value, aver_err)
+#             X[i] = a
+
+#     u_dphi_pure = 180 * (X) / np.pi
+
+#     dphi_pure = unumpy.nominal_values(u_dphi_pure)
+#     e_dphi_pure = unumpy.std_devs(u_dphi_pure)
+#     wl_inline = wl[inLine]
+
+#     # Compute photocenter shifts
+#     ucoord = d.u[ibl]
+#     vcoord = d.v[ibl]
+#     bl_length, bl_pa = cart2pol(ucoord, vcoord)
+
+#     n_wl_inline = len(wl_inline)
+#     pco = np.zeros(n_wl_inline)
+#     e_pco = np.zeros(n_wl_inline)
+#     for iwl in range(n_wl_inline):
+#         pi = rad2mas(
+#             (-np.deg2rad(dphi_pure[iwl]) / (2 * np.pi))
+#             * ((wl_inline[iwl] * 1e-6) / (bl_length))
+#         )
+#         e_pi = rad2mas(
+#             (-np.deg2rad(e_dphi_pure[iwl]) / (2 * np.pi))
+#             * ((wl_inline[iwl] * 1e-6) / (bl_length))
+#         )
+#         pco[iwl] = pi
+#         e_pco[iwl] = abs(e_pi)
+
+#     # Uncertainties computation (to be done)
+#     output = {
+#         "dvis": dvis,
+#         "e_dvis": e_dvis,
+#         "dphi": dphi,
+#         "e_dphi": e_dphi,
+#         "pco": pco,
+#         "e_pco": e_pco,
+#         "bl_pa": bl_pa,
+#         "bl_length": bl_length,
+#         "dvis_pure": dvis_pure,
+#         "e_dvis_pure": e_dvis_pure,
+#         "dphi_pure": dphi_pure,
+#         "e_dphi_pure": e_dphi_pure,
+#         "wl_line": wl_inline,
+#         "inLine": inLine,
+#         "mod_dvis": mod_dvis,
+#         "e_mod_dvis": e_dvis_inline,
+#         "mod_dphi": mod_dphi,
+#         "e_mod_dphi": np.rad2deg(e_dphi_inline),
+#         "e_flux": e_flux,
+#         "blname": d.blname[ibl],
+#         "param_dphi": param_dphi,
+#         "param_dvis": param_dvis,
+#         "F_tot": F_tot,
+#     }
+#     return munchify(output)
+
+
 def compute_pure_line_cvis(
     ibl,
     d,
-    d_ft,
     flc,
+    *,
+    d_ft=None,
     lbdBrg=2.1661,
     wBrg=0.0005,
     use_mod=True,
@@ -688,6 +1004,8 @@ def compute_pure_line_cvis(
     verbose=False,
     A=0.5,
     ref_v2=False,
+    param_dphi=None,
+    param_dvis=None,
 ):
     if force_zero_dphi is None:
         force_zero_dphi = []
@@ -703,9 +1021,15 @@ def compute_pure_line_cvis(
     e_flux = flc["e_flux"]  # error on the flux
     F_lc = flc["F_lc"]  # fit on the normalized spectrum
 
+    flc["widthline"]
+
     #  Compute region in and outside the line
     wl = d.wl * 1e6
-    inCont = (np.abs(wl - lbdBrg) < 0.1) * (np.abs(wl - lbdBrg) > 0.004)
+
+    # try:
+    inCont = flc["inCont"]
+    # inCont = (np.abs(wl - lbdBrg) < 0.1) * (np.abs(wl - lbdBrg) > 0.004)
+    # inLine = np.abs(wl - lbdBrg) <= 2.355 * wBrg
 
     # Take the continuum from the FT camera (for GRAVITY)
     if self_norm:
@@ -716,7 +1040,8 @@ def compute_pure_line_cvis(
         nan_interp(cvis_in_cont)
         cont_ft = cvis_in_cont.mean()
     else:
-        cont_ft = d_ft.dvis[ibl]
+        # cont_ft = d_ft.dvis[ibl]
+        cont_ft = d_ft.vis2[ibl] ** 0.5
 
     dvis, e_dvis = normalize_dvis_continuum(
         ibl, d, inCont=inCont, force_cont=cont_ft, lbdBrg=lbdBrg
@@ -730,24 +1055,24 @@ def compute_pure_line_cvis(
     # Fit differential obs
     # param_dvis = {"A": 0.02, "B": 0.88, "sigma": 0.0005, "pos": lbdBrg}
 
-    param_dvis = {
-        "A": 0.01,
-        "B": 0.01,
-        "C": 0.9,
-        "sigmaA": 0.0005 / 2.355,
-        "sigmaB": 0.0005 / 2.355,
-        "pos": lbdBrg,
-        "dp": wBrg * 2,
-    }
+    # param_dvis = {
+    #     "A": 0.01,
+    #     "B": 0.01,
+    #     "C": 0.9,
+    #     "sigmaA": 0.0005 / 2.355,
+    #     "sigmaB": 0.0005 / 2.355,
+    #     "pos": lbdBrg,
+    #     "dp": wBrg * 2,
+    # }
 
-    param_dphi = {
-        "A": -A,
-        "B": A,
-        "sigmaA": 0.0005 / 2.355,
-        "sigmaB": 0.0005 / 2.355,
-        "pos": lbdBrg,
-        "dp": wBrg * 2,
-    }
+    # param_dphi = {
+    #     "A": -A,
+    #     "B": A,
+    #     "sigmaA": 0.0005 / 2.355,
+    #     "sigmaB": 0.0005 / 2.355,
+    #     "pos": lbdBrg,
+    #     "dp": wBrg * 2,
+    # }
 
     double_phase = True
     double_vis = True
@@ -758,7 +1083,7 @@ def compute_pure_line_cvis(
 
     try:
         mod_dvis, fit_dvis = perform_fit_dvis(
-            wl, dvis, e_dvis, param_dvis, double=double_vis
+            wl, dvis, e_dvis, param_dvis, inCont=inCont, double=double_vis
         )
     except UnboundLocalError:
         mod_dvis = []
@@ -787,7 +1112,11 @@ def compute_pure_line_cvis(
     else:
         V_tot = dvis[inLine]
         dphi_inline = np.deg2rad(dphi[inLine])
-        F_tot = d.flux[inLine]
+        try:
+            F_tot = d.flux[inLine]
+        except IndexError:
+            F_tot = flc["flux"][inLine]
+        # F_tot = d.flux[inLine]
 
     e_dvis_inline = np.mean(e_dvis[inLine])
     e_dphi_inline = np.mean(np.deg2rad(e_dphi[inLine]))
@@ -820,7 +1149,8 @@ def compute_pure_line_cvis(
         - (2 * u_V_tot * u_F_tot * u_V_cont * F_cont * unumpy.cos(u_dphi_inline))
     )
 
-    u_dvis_pure = u_nominator ** 0.5 / u_F_line
+    u_dvis_pure = u_nominator**0.5 / u_F_line
+    # u_dvis_pure = (u_F_tot * u_V_tot - u_V_cont) / (u_F_tot - 1)
 
     # for i in range(len(u_V_tot)):
     #     print(u_V_tot[i], u_dvis_pure[i], u_F_tot[i])
@@ -886,11 +1216,247 @@ def compute_pure_line_cvis(
         "blname": d.blname[ibl],
         "param_dphi": param_dphi,
         "param_dvis": param_dvis,
+        "inLine": inLine,
+        "F_tot": F_tot,
     }
     return munchify(output)
 
 
-def compute_pco(data, data_cont, flc, **args):
+# def compute_pure_line_cvis_v2(
+#     ibl,
+#     d,
+#     lcr,
+#     *,
+#     inLine=None,
+#     inCont=None,
+#     e_flux=None,
+#     d_ft=None,
+#     lbdBrg=2.1661,
+#     wBrg=0.0005,
+#     use_mod=True,
+#     self_norm=False,
+#     force_zero_dphi=None,
+#     force_zero_dvis=None,
+#     force_simple_phase=None,
+#     force_simple_vis=None,
+#     use_cont_err=True,
+#     verbose=False,
+#     A=0.5,
+#     ref_v2=False,
+#     param_dphi=None,
+#     param_dvis=None,
+# ):
+#     if force_zero_dphi is None:
+#         force_zero_dphi = []
+#     if force_zero_dvis is None:
+#         force_zero_dvis = []
+#     if force_simple_phase is None:
+#         force_simple_phase = []
+#     if force_simple_vis is None:
+#         force_simple_vis = []
+
+#     # Extract the parameters from flc dict (from compute_flc_spectra())
+#     # inLine = flc["inLine"]
+#     # e_flux = flc["e_flux"]  # error on the flux
+#     F_lc = lcr  # fit on the normalized spectrum
+
+#     # #  Compute region in and outside the line
+#     # wl = d.wl * 1e6
+#     # inCont = (np.abs(wl - lbdBrg) < 0.1) * (np.abs(wl - lbdBrg) > 0.004)
+#     # # inLine = np.abs(wl - lbdBrg) <= 2.355 * wBrg
+
+#     # Take the continuum from the FT camera (for GRAVITY)
+#     if self_norm:
+#         if ref_v2:
+#             cvis_in_cont = d.vis2[ibl][inCont].copy() ** 0.5
+#         else:
+#             cvis_in_cont = d.dvis[ibl][inCont].copy()
+#         nan_interp(cvis_in_cont)
+#         cont_ft = cvis_in_cont.mean()
+#     else:
+#         # cont_ft = d_ft.dvis[ibl]
+#         cont_ft = d_ft.vis2[ibl] ** 0.5
+
+#     dvis, e_dvis = normalize_dvis_continuum(
+#         ibl, d, inCont=inCont, force_cont=cont_ft, lbdBrg=lbdBrg
+#     )
+#     dphi, e_dphi = normalize_dphi_continuum(ibl, d, lbdBrg=lbdBrg)
+
+#     if use_cont_err:
+#         e_dphi = np.ones(len(e_dphi)) * np.std(dphi[inCont])
+#         e_dvis = np.ones(len(e_dvis)) * np.std(dvis[inCont])
+
+#     # Fit differential obs
+#     param_dvis = {"A": 0.02, "B": 0.88, "sigma": 0.0005, "pos": lbdBrg}
+
+#     param_dvis = {
+#         "A": 0.01,
+#         "B": 0.01,
+#         "C": 0.9,
+#         "sigmaA": 0.0005 / 2.355,
+#         "sigmaB": 0.0005 / 2.355,
+#         "pos": lbdBrg,
+#         "dp": wBrg * 2,
+#     }
+
+#     param_dphi = {
+#         "A": -A,
+#         "B": A,
+#         "sigmaA": 0.0005 / 2.355,
+#         "sigmaB": 0.0005 / 2.355,
+#         "pos": lbdBrg,
+#         "dp": wBrg * 2,
+#     }
+
+#     double_phase = True
+#     double_vis = True
+#     if ibl in force_simple_phase:
+#         double_phase = False
+#     if ibl in force_simple_vis:
+#         double_vis = False
+
+#     try:
+#         mod_dvis, fit_dvis = perform_fit_dvis(
+#             wl, dvis, e_dvis, param_dvis, double=double_vis
+#         )
+#     except UnboundLocalError:
+#         mod_dvis = []
+
+#     mod_dphi, fit_dphi = perform_fit_dphi(
+#         wl, dphi, e_dphi, param_dphi, double=double_phase
+#     )
+
+# if ibl in force_zero_dphi:
+#     mod_dphi = np.zeros_like(mod_dphi)
+# if ibl in force_zero_dvis:
+#     mod_dvis = np.ones_like(mod_dvis) * fit_dvis["best"]["C"]
+
+# if verbose:
+#     print("Results fit differentials:")
+#     print("--------------------------")
+#     print(
+#         "chi2: vis={:2.2f}, phi={:2.2f}".format(fit_dvis["chi2"], fit_dphi["chi2"])
+#     )
+
+# # Compute pure line vis and phi
+# if use_mod:
+#     V_tot = mod_dvis[inLine]
+#     dphi_inline = np.deg2rad(mod_dphi[inLine])
+#     F_tot = F_lc[inLine]
+# else:
+#     V_tot = dvis[inLine]
+#     dphi_inline = np.deg2rad(dphi[inLine])
+#     try:
+#         F_tot = d.flux[inLine]
+#     except IndexError:
+#         F_tot = flc["flux"][inLine]
+#     # F_tot = d.flux[inLine]
+
+# e_dvis_inline = np.mean(e_dvis[inLine])
+# e_dphi_inline = np.mean(np.deg2rad(e_dphi[inLine]))
+
+# from uncertainties import ufloat, unumpy
+
+# if self_norm:
+#     V_cont = dvis[inCont].mean()
+#     e_V_cont = dvis[inCont].std()  # 0.001 * V_cont
+# else:
+#     V_cont = d_ft.dvis[ibl]
+#     e_V_cont = d_ft.e_dvis[ibl]
+
+# # print("Continuum amp = ", ufloat(V_cont, e_V_cont))
+
+# n = len(V_tot)
+# u_V_tot = np.array([ufloat(V_tot[i], e_dvis_inline) for i in range(n)])
+# u_F_tot = np.array([ufloat(F_tot[i], e_flux) for i in range(n)])
+# u_V_cont = np.array([ufloat(V_cont, e_V_cont) for i in range(n)])
+# u_dphi_inline = np.array(
+#     [ufloat(dphi_inline[i], np.deg2rad(e_dphi[inLine][i])) for i in range(n)]
+# )
+
+# F_cont = 1
+# u_F_line = u_F_tot - F_cont
+
+# u_nominator = (
+#     abs(u_V_tot * u_F_tot) ** 2
+#     + abs(u_V_cont * F_cont) ** 2
+#     - (2 * u_V_tot * u_F_tot * u_V_cont * F_cont * unumpy.cos(u_dphi_inline))
+# )
+
+# u_dvis_pure = u_nominator ** 0.5 / u_F_line
+# # u_dvis_pure = (u_F_tot * u_V_tot - u_V_cont) / (u_F_tot - 1)
+
+# # for i in range(len(u_V_tot)):
+# #     print(u_V_tot[i], u_dvis_pure[i], u_F_tot[i])
+
+# dvis_pure = unumpy.nominal_values(u_dvis_pure)
+# e_dvis_pure = unumpy.std_devs(u_dvis_pure)
+
+# u_dphi_pure = (
+#     180
+#     * (
+#         unumpy.arcsin(
+#             (u_F_tot * u_V_tot * unumpy.sin(u_dphi_inline))
+#             / (u_F_line * u_dvis_pure)
+#         )
+#     )
+#     / np.pi
+# )
+
+# dphi_pure = unumpy.nominal_values(u_dphi_pure)
+# e_dphi_pure = unumpy.std_devs(u_dphi_pure)
+# wl_inline = wl[inLine]
+
+# # Compute photocenter shifts
+# ucoord = d.u[ibl]
+# vcoord = d.v[ibl]
+# bl_length, bl_pa = cart2pol(ucoord, vcoord)
+
+# n_wl_inline = len(wl_inline)
+# pco = np.zeros(n_wl_inline)
+# e_pco = np.zeros(n_wl_inline)
+# for iwl in range(n_wl_inline):
+#     pi = rad2mas(
+#         (-np.deg2rad(dphi_pure[iwl]) / (2 * np.pi))
+#         * ((wl_inline[iwl] * 1e-6) / (bl_length))
+#     )
+#     e_pi = rad2mas(
+#         (-np.deg2rad(e_dphi_pure[iwl]) / (2 * np.pi))
+#         * ((wl_inline[iwl] * 1e-6) / (bl_length))
+#     )
+#     pco[iwl] = pi
+#     e_pco[iwl] = abs(e_pi)
+
+# # Uncertainties computation (to be done)
+# output = {
+#     "dvis": dvis,
+#     "e_dvis": e_dvis,
+#     "dphi": dphi,
+#     "e_dphi": e_dphi,
+#     "pco": pco,
+#     "e_pco": e_pco,
+#     "bl_pa": bl_pa,
+#     "bl_length": bl_length,
+#     "dvis_pure": dvis_pure,
+#     "e_dvis_pure": e_dvis_pure,
+#     "dphi_pure": dphi_pure,
+#     "e_dphi_pure": e_dphi_pure,
+#     "wl_line": wl_inline,
+#     "mod_dvis": mod_dvis,
+#     "e_mod_dvis": e_dvis_inline,
+#     "mod_dphi": mod_dphi,
+#     "e_mod_dphi": np.rad2deg(e_dphi_inline),
+#     "e_flux": e_flux,
+#     "blname": d.blname[ibl],
+#     "param_dphi": param_dphi,
+#     "param_dvis": param_dvis,
+#     "inLine": inLine,
+#     "F_tot": F_tot,
+# }
+# return munchify(output)
+
+
+def compute_pco(data, data_cont, **args):
     """Compute the photocenter offset for the differente baselines and spectral
     channels available in `data`. The continuum is normalized using the
     observables from `data_cont` (usually the FT data from GRAVITY).
@@ -912,6 +1478,7 @@ def compute_pco(data, data_cont, flc, **args):
     lengths ('bl_length') and baseline orientations ('bl_pa').
     """
     # Extract the parameters from flc dict (from compute_flc_spectra())
+    flc = args["flc"]
     inLine = flc["inLine"]
 
     nbl = len(data.vis2)
@@ -919,15 +1486,10 @@ def compute_pco(data, data_cont, flc, **args):
     pco = []
     bl_pa, bl_length = np.zeros(nbl), np.zeros(nbl)
 
+    print(args.keys())
     l_pure = []
     for i in range(nbl):
-        tmp = compute_pure_line_cvis(
-            i,
-            data,
-            data_cont,
-            flc=flc,
-            **args,
-        )
+        tmp = compute_pure_line_cvis(i, data, d_ft=data_cont, **args)
         l_pure.append(tmp)
         pco_wl = []
         for j in range(nwl):
@@ -954,6 +1516,7 @@ def compute_pco(data, data_cont, flc, **args):
         "wl_line": wl_line,
         "nwl_inline": len(flc["wl"][inLine]),
         "pure": np.array(l_pure),
+        "restframe": flc["restframe"],
     }
     return output
 
@@ -999,7 +1562,7 @@ def pcs_from_aspro(d, lbdBrg=2.1661, wBrg=0.0005, ratio=2.5):
                 y_pc,
                 err=e_pc,
                 verbose=False,
-                normalizedUncer=False,
+                normalizedUncer=True,
             )
             chi2 = fit_tmp["chi2"]
             if chi2 <= chi2_tmp:
@@ -1029,5 +1592,44 @@ def pcs_from_aspro(d, lbdBrg=2.1661, wBrg=0.0005, ratio=2.5):
         "wl": wl_inline,
         "wl_line": lbdBrg,
         "inLine": inLine,
+        "restframe": lbdBrg,
     }
     return pcs
+
+
+def extract_condition(
+    list_data,
+):
+    from astropy.io import fits
+
+    l_seeing = []
+    l_tau = []
+    l_mjd = []
+    for i, _ in enumerate(list_data):
+        filename = list_data[i].info.filename
+        hdu = fits.open(filename)
+        hdr = hdu[0].header
+        hdu.close()
+        seeing1 = hdr["HIERARCH ESO ISS AMBI FWHM START"]
+        seeing2 = hdr["HIERARCH ESO ISS AMBI FWHM END"]
+        tau1 = hdr["HIERARCH ESO ISS AMBI TAU0 START"]
+        tau2 = hdr["HIERARCH ESO ISS AMBI TAU0 END"]
+
+        mjd = hdr["MJD-OBS"]
+        if i == 0:
+            mjd0 = mjd
+        l_mjd.append(mjd)
+
+        tau = np.mean([tau1, tau2]) * 1e3
+        seeing = np.mean([seeing1, seeing2])
+        l_seeing.append(seeing)
+        l_tau.append(tau)
+
+    output = {
+        "tau": np.array(l_tau),
+        "seeing": np.array(l_seeing),
+        "mjd": np.array(l_mjd),
+        "mjd0": mjd0,
+    }
+
+    return munchify(output)
