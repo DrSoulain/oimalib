@@ -21,23 +21,14 @@ from astropy.io import fits
 from matplotlib import pyplot as plt
 from munch import munchify as dict2class
 from scipy import fft
-from scipy.interpolate import interp1d
-from scipy.interpolate import interp2d
-from scipy.interpolate import RegularGridInterpolator as regip
-from scipy.ndimage import gaussian_filter1d
-from scipy.ndimage import rotate
+from scipy.interpolate import RegularGridInterpolator as regip, interp1d, interp2d
+from scipy.ndimage import gaussian_filter1d, rotate
 from termcolor import cprint
 
 import oimalib
-from oimalib.fitting import check_params_model
-from oimalib.fitting import comput_CP
-from oimalib.fitting import comput_V2
-from oimalib.fitting import select_model
+from oimalib.fitting import check_params_model, comput_CP, comput_V2, select_model
 from oimalib.fourier import UVGrid
-from oimalib.tools import apply_windowing
-from oimalib.tools import mas2rad
-from oimalib.tools import rad2arcsec
-from oimalib.tools import rad2mas
+from oimalib.tools import apply_windowing, mas2rad, rad2arcsec, rad2mas
 
 
 def _check_good_tel(list_data, verbose=True):
@@ -501,8 +492,8 @@ def _compute_grid_model_chromatic(data, grid, verbose=False):
                     bispec = np.array(cvis_1) * np.array(cvis_2) * np.array(cvis_3)
                     cp = grid.sign * np.rad2deg(np.arctan2(bispec.imag, bispec.real))
                 else:
-                    cp = np.nan
-                mod_cp[i, j] = cp
+                    cp = [np.nan]
+                mod_cp[i, j] = cp[0]
         l_mod_cp.append(mod_cp)
         l_mod_v2.append(mod_v2)
 
