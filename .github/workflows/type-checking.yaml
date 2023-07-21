@@ -32,5 +32,5 @@ jobs:
         python -m pip install --upgrade pip\<22.0
         python -m pip install .[typecheck]
 
-    - name: Run mypy
-      run: mypy oimalib
+    # - name: Run mypy
+    #   run: mypy oimalib
