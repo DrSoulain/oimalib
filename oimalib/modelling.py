@@ -15,7 +15,10 @@ from functools import partial
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
+import seaborn as sns
 from astropy.io import fits
+from matplotlib import pyplot as plt
 from munch import munchify as dict2class
 from scipy import fft
 from scipy.interpolate import interp1d
@@ -25,11 +28,13 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.ndimage import rotate
 from termcolor import cprint
 
+import oimalib
 from oimalib.fitting import check_params_model
 from oimalib.fitting import comput_CP
 from oimalib.fitting import comput_V2
 from oimalib.fitting import select_model
 from oimalib.fourier import UVGrid
+from oimalib.tools import apply_windowing
 from oimalib.tools import mas2rad
 from oimalib.tools import rad2arcsec
 from oimalib.tools import rad2mas
@@ -88,12 +93,12 @@ def _print_info_model(wl_model, modelfile, fov, npix, s, starttime):
         fname = modelfile.split("/")[-1]
     except AttributeError:
         fname = modelfile.name
-    title = f"Model grid from {modeltype} ({fname})"
+    title = f"\nModel grid from {modeltype} ({fname})"
     cprint(title, "cyan")
     cprint("-" * len(title), "cyan")
     pixsize = fov / npix
     print(
-        "fov=%2.2f mas, npix=%i (%i padded, equivalent %2.2f mas), pix=%2.3f mas"
+        "fov=%2.2f mas, npix=%i (%i padded, equivalent %2.2f mas), pix=%2.4f mas"
         % (fov, npix, s[2], s[2] * pixsize, pixsize)
     )
     if nwl == 1:
@@ -108,10 +113,10 @@ def _print_info_model(wl_model, modelfile, fov, npix, s, starttime):
             "green",
         )
     print("Computation time = %2.2f s" % (time.time() - starttime))
-    cprint("-" * len(title) + "\n", "cyan")
+    return pixsize, title
 
 
-def _construct_ft_arr(cube, ncore=8):
+def _construct_ft_arr(cube):
     """Open the model cube and perform a series of roll (both axis) to avoid grid artefact
     (negative fft values).
 
@@ -127,14 +132,100 @@ def _construct_ft_arr(cube, ncore=8):
 
     """
     n_pix = cube.shape[1]
-    cube = np.roll(np.roll(cube, n_pix // 2, axis=1), n_pix // 2, axis=2)
+    cube = np.roll(cube, (n_pix // 2, n_pix // 2), axis=(1, 2))
 
-    ft_arr = fft.fft2(cube, workers=ncore)
+    ft_arr = fft.fft2(cube, workers=multiprocessing.cpu_count())
 
     i_ps = ft_arr.shape
     n_ps = i_ps[0]
 
     return ft_arr, n_ps, n_pix
+
+
+def _extract_pix(hdr, pix_user, scale):
+    try:
+        unit = hdr["CUNIT1"]
+    except KeyError:
+        unit = None
+    try:
+        if unit is None:
+            if "deg" in (hdr.comments["CDELT1"]):
+                unit = "deg"
+            else:
+                unit = "rad"
+        if unit == "rad":
+            pix_size = abs(hdr["CDELT1"]) * scale
+        elif unit == "deg":
+            pix_size = np.deg2rad(abs(hdr["CDELT1"])) * scale
+        elif unit == "mas":
+            pix_size = mas2rad(abs(hdr["CDELT1"])) * scale
+        else:
+            print("Wrong unit in CDELT1 header.")
+    except KeyError:
+        unit = "rad"
+        if pix_user is None:
+            cprint(
+                "Error: Pixel size not found, please give pix_user [mas].",
+                "red",
+                file=sys.stderr,
+            )
+            return None
+        pix_size = mas2rad(pix_user) * scale
+    return unit, pix_size
+
+
+def _extract_wave(hdu, hdr, wl_user=None, azim=None, incl=None):
+    n_axis = len(hdu[0].data.shape)
+    if n_axis == 5:
+        n_azim = hdu[0].data.shape[0]
+        n_incl = hdu[0].data.shape[1]
+        if (azim is None) or (incl is None):
+            print(
+                "Model seems to include azimuth (%i) and incl (%i)" % (n_azim, n_incl)
+            )
+            print("-> Specify azim and incl index.")
+            return None
+
+        wl_line = hdu[0].header["LAMBDA0"] * 1e-9 * 1e6
+        wl_model = hdu[1].data * 1e-9 * 1e6
+        wBrg = 0.0005
+        close_line = np.abs(wl_model - wl_line) < 3 * wBrg
+        delta_wl = np.diff(wl_model[close_line]).mean()
+    elif n_axis == 3:
+        n_wl = hdu[0].data.shape[0]
+        wl0 = hdr.get("CRVAL3", 0)
+        delta_wl = hdr.get("CDELT3", 0)
+        wl_model = np.linspace(wl0, wl0 + delta_wl * (n_wl - 1), n_wl)
+    elif n_axis == 2:
+        return np.array(wl_user).astype(float), None, None
+
+    n_wl = hdr.get("NAXIS3", 1)
+    if wl_user is not None:
+        wl0 = wl_user
+        if type(wl_user) is float or np.float64:
+            n_wl = 1
+        elif type(wl_user) is list:
+            n_wl = len(wl_user)
+        else:
+            cprint("wl_user have a wrong format: need float or list.", "red")
+            return 0
+    else:
+        if n_axis == 3:
+            wl0 = hdr.get("CRVAL3", None)
+            if wl0 is None:
+                wl0 = hdr.get("WLEN0", None)
+
+        if wl0 is None:
+            if wl_user is None:
+                cprint("Wavelength not found: need wl_user [µm].", "red")
+                return None
+            else:
+                wl0 = wl_user
+                print(
+                    "Wavelenght not found: argument wl_user (%2.1f) is used)." % wl_user
+                )
+
+    return wl_model, delta_wl, n_wl
 
 
 def model2grid(
@@ -149,8 +240,11 @@ def model2grid(
     i1=0,
     i2=None,
     light=False,
-    ncore=1,
     window=None,
+    azim=None,
+    incl=None,
+    wline=0.1,
+    verbose=True,
 ):
     """Compute grid class from model as fits file cube.
 
@@ -181,6 +275,7 @@ def model2grid(
             - 'name': file name of the model.\n
     """
     hdu = fits.open(modelfile)
+
     try:
         hdr = hdu[0].header
         npix = hdr["NAXIS1"]
@@ -188,140 +283,105 @@ def model2grid(
         hdr = hdu["IMAGE"].header
     starttime = time.time()
 
-    n_wl = hdr.get("NAXIS3", 1)
-    delta_wl = hdr.get("CDELT3", 0)
-
-    print(n_wl)
-    if wl_user is not None:
-        wl0 = wl_user
-        if type(wl_user) is float or np.float64:
-            n_wl = 1
-        elif type(wl_user) is list:
-            n_wl = len(wl_user)
-        else:
-            cprint("wl_user have a wrong format: need float or list.", "red")
-            return 0
-    else:
-        wl0 = hdr.get("CRVAL3", None)
-        if wl0 is None:
-            wl0 = hdr.get("WLEN0", None)
-
-        if wl0 is None:
-            if wl_user is None:
-                cprint("Wavelength not found: need wl_user [µm].", "red")
-                return None
-            else:
-                wl0 = wl_user
-                print(
-                    "Wavelenght not found: argument wl_user (%2.1f) is used)." % wl_user
-                )
-
-    try:
-        wl0 = float(wl0)
-    except TypeError:
-        pass
     npix = hdr["NAXIS1"]
 
-    try:
-        unit = hdr["CUNIT1"]
-    except KeyError:
-        unit = None
+    # Extract the wavelength table or specify user one
+    wl_model, delta_wl, n_wl = _extract_wave(
+        hdu, hdr, wl_user=wl_user, azim=azim, incl=incl
+    )
 
-    try:
-        if unit is None:
-            if "deg" in (hdr.comments["CDELT1"]):
-                unit = "deg"
-            else:
-                unit = "rad"
-        if unit == "rad":
-            pix_size = abs(hdr["CDELT1"]) * scale
-        elif unit == "deg":
-            pix_size = np.deg2rad(abs(hdr["CDELT1"])) * scale
-        elif unit == "mas":
-            pix_size = mas2rad(abs(hdr["CDELT1"])) * scale
-        else:
-            print("Wrong unit in CDELT1 header.")
-    except KeyError:
-        unit = "rad"
-        if pix_user is None:
-            cprint(
-                "Error: Pixel size not found, please give pix_user [mas].",
-                "red",
-                file=sys.stderr,
-            )
-            return None
-        pix_size = mas2rad(pix_user) * scale
+    # Extract the pixel size or specify user one
+    unit, pix_size = _extract_pix(hdr, pix_user, scale)
 
     fov = rad2mas(npix * pix_size)
-
     if n_wl == 1:
-        wl_model = np.array([wl0])
-    else:
-        wl_model = np.linspace(wl0, wl0 + delta_wl * (n_wl - 1), n_wl)
+        pass
 
     unit_wl = hdr.get("CUNIT3", None)
-
     if unit_wl != "m":
         wl_model *= 1e-6
 
     if wl_user is not None:
         wl_model = wl_user / 1e6
 
-    padding = pad_fact * np.array([npix // 2, npix // 2])
-    padding = padding.astype(int)
     try:
-        if len(hdu[0].data) != 1:
-            image_input = hdu[0].data[i1:i2]
-        else:
-            image_input = hdu[0].data
-    except TypeError:
-        if len(hdu["IMAGE"].data) != 1:
-            image_input = hdu["IMAGE"].data[i1:i2]
-        else:
-            image_input = hdu["IMAGE"].data
+        restframe = hdu[0].header["LAMBDA0"] * 1e-9 * 1e6
+    except Exception:
+        restframe = None
+
+    if restframe is not None:
+        inLine = abs(wl_model * 1e6 - restframe) < 10 * wline
+    else:
+        inLine = [True] * len(wl_model)
+
+    # wl_model = wl_model[inLine]
+    if len(hdu[0].data.shape) == 3:
+        image_input = hdu[0].data[inLine, :, :]
+    if len(hdu[0].data.shape) == 5:
+        image_input = hdu[0].data[azim, incl, inLine]
+        if fliplr:
+            image_input = np.array([np.fliplr(x) for x in image_input])
+    else:
+        image_input = hdu[0].data
 
     flux = []
     for _ in image_input:
         flux.append(_.sum())
     flux = np.array(flux) / image_input[0].sum()
+    # flux = flux[inLine]
+
+    if len(hdu[0].data.shape) >= 3:
+        sns.set_context("talk", font_scale=0.9)
+        plt.figure(figsize=(6, 4))
+        plt.plot(wl_model * 1e6, flux, ".", label="nwl=%i" % len(wl_model))
+        if restframe is not None:
+            plt.axvline(
+                restframe,
+                ls="--",
+                lw=2,
+                color="green",
+                alpha=0.5,
+                label=r"$\lambda$=%2.4f µm" % restframe,
+            )
+        plt.xlabel("Wavelength [µm]")
+        plt.ylabel("Norm. spectrum")
+        plt.legend(fontsize=12)
+        plt.tight_layout(pad=1.01)
 
     axes_rot = (1, 2)
-    n_image = image_input.shape[0]
     if len(image_input.shape) == 2:
         image_input = image_input.reshape(
             [1, image_input.shape[0], image_input.shape[1]]
         )
-        n_image = 1
     mod = rotate(image_input, rotation, axes=axes_rot, reshape=False)
-
     model_aligned = mod.copy()
-    if fliplr:
-        model_aligned = np.fliplr(model_aligned)
+    # if fliplr:
+    #     model_aligned = np.fliplr(model_aligned)
 
-    mod_pad = np.pad(model_aligned, pad_width=((0, 0), padding, padding), mode="edge")
-    if mod_pad.shape[1] % 2 == 0:
-        mod_pad = mod_pad[:, :-1, :-1]
-
+    npix = model_aligned.shape[1]
+    pp = npix * (pad_fact - 1) // 2
+    pad_width = [(0, 0), (pp, pp), (pp, pp)]
+    mod_pad = np.pad(model_aligned, pad_width=pad_width, mode="edge")
     mod_pad = mod_pad / np.max(mod_pad)
-
-    from oimalib.tools import apply_windowing
-
-    # mod_pad = np.array([apply_windowing(x, window=npix//2) for x in mod_pad])
     mod_pad[mod_pad < 1e-20] = 1e-50
     s = np.shape(mod_pad)
 
-    fft2D, n_ps, n_pix = _construct_ft_arr(mod_pad, ncore=ncore)
-    fft2D = np.roll(fft2D, n_pix // 2, axis=1)
-    fft2D = np.roll(fft2D, n_pix // 2, axis=2)
-
+    tmp = _construct_ft_arr(mod_pad)
+    fft2D = tmp[0]
+    n_pix = tmp[2]
+    fft2D = np.fft.fftshift(fft2D, axes=(1, 2))
     maxi = np.max(np.abs(fft2D), axis=(1, 2))
-
-    for i in range(n_image):
-        fft2D[i, :, :] = fft2D[i, :, :] / maxi[i]
-
+    fft2D /= maxi[:, None, None]
     freqVect = np.fft.fftshift(np.fft.fftfreq(n_pix, pix_size))
-    _print_info_model(wl_model, modelfile, fov, npix, s, starttime)
+    if verbose:
+        pix_size_grid, title = _print_info_model(
+            wl_model, modelfile, fov, npix, s, starttime
+        )
+    pix_size_grid = fov / npix
 
+    if verbose:
+        print("start interpolation...")
+    t2 = time.time()
     fft2d_real = fft2D.real
     fft2d_imag = fft2D.imag
     if window is not None:
@@ -359,7 +419,6 @@ def model2grid(
     except KeyError:
         sign = 1.0
 
-    # if fliplr:
     if light:
         grid = {
             "real": im3d_real,
@@ -367,6 +426,8 @@ def model2grid(
             "sign": sign,
             "pad_fact": pad_fact,
             "flux": flux,
+            "wl": wl_model,
+            "psize": pix_size_grid,
         }
     else:
         grid = {
@@ -382,8 +443,13 @@ def model2grid(
             "pad_fact": pad_fact,
             "flux": flux,
             "npix": s[1],
+            "psize": pix_size_grid,
         }
     hdu.close()
+
+    if verbose:
+        print("Interpolation is done (%2.2f s)" % (time.time() - t2))
+        cprint("-" * len(title) + "\n", "cyan")
     return dict2class(grid)
 
 
@@ -560,6 +626,23 @@ def compute_geom_model(data, param, verbose=False):
     return l_mod_v2, l_mod_cp
 
 
+def _check_prior(param):
+    isValid = True
+    prior = param.get("prior", {})
+    fitOnly = param.get("fitOnly", [])
+    for p in fitOnly:
+        value = param[p]
+        if p in prior:
+            min_value = prior[p][0]
+            max_value = prior[p][1]
+        else:
+            min_value = -np.inf
+            max_value = np.inf
+        if (value < min_value) | (value > max_value):
+            isValid = False
+    return isValid
+
+
 def _compute_geom_model_ind(
     dataset, param, compute_cp=True, use_flag=False, verbose=False
 ):
@@ -572,7 +655,7 @@ def _compute_geom_model_ind(
     Lambda = dataset.wl
     nobs = len(Utable) * len(Lambda)
     model_target = select_model(param["model"])
-    isValid = check_params_model(param)[0]
+    # isValid = check_params_model(param)[0]
 
     # Find telescope down or problem with one baseline (only nan)
     try:
@@ -627,18 +710,20 @@ def _compute_geom_model_ind(
         cp = None
     endtime = time.time()
 
-    isValid = check_params_model(param)[0]
-    if not isValid:
-        vis2 = np.zeros_like(vis2)
-        vis2[vis2 == 0] = np.nan
-        cp = np.zeros_like(cp)
-        cp[cp == 0] = np.nan
-        vis_amp = np.zeros_like(vis_amp)
-        vis_amp[vis_amp == 0] = np.nan
-        vis_phi = np.zeros_like(vis_phi)
-        vis_phi[vis_phi == 0] = np.nan
-        cvis = np.zeros_like(cvis)
-        cvis[cvis == 0] = np.nan
+    # isValid = check_params_model(param)[0]
+
+    # valid_prior = _check_prior(param)
+    # if not (isValid & valid_prior):
+    #     vis2 = np.zeros_like(vis2)
+    #     vis2[vis2 == 0] = np.nan
+    #     cp = np.zeros_like(cp)
+    #     cp[cp == 0] = np.nan
+    #     vis_amp = np.zeros_like(vis_amp)
+    #     vis_amp[vis_amp == 0] = np.nan
+    #     vis_phi = np.zeros_like(vis_phi)
+    #     vis_phi[vis_phi == 0] = np.nan
+    #     cvis = np.zeros_like(cvis)
+    #     cvis[cvis == 0] = np.nan
 
     if verbose:
         print("Time to compute %i points = %2.2f s" % (nobs, endtime - startime))
@@ -669,7 +754,10 @@ def compute_geom_model_fast(
     if ncore == 1:
         result_list = [
             _compute_geom_model_ind(
-                x, param=param, compute_cp=compute_cp, use_flag=use_flag
+                x,
+                param=param,
+                compute_cp=compute_cp,
+                use_flag=use_flag,
             )
             for x in l_data
         ]
@@ -775,18 +863,35 @@ def _compute_dobs_grid_bl(
 
 
 def combine_grid_geom_model_image(
-    wl, grid, param, ampli_factor=1, fh=0, fc=0, fmag=1, fov=3, npts=256
+    wl,
+    grid,
+    param,
+    ampli_factor=1,
+    rotation=0,
+    fh=0,
+    fc=0,
+    fmag=1,
+    fov=3,
+    npts=256,
+    verbose=False,
 ):
+    if type(wl) is list:
+        wl = np.array(wl)
+    elif type(wl) is float or type(wl) is np.float64:
+        wl = np.array([wl])
+
     fov = mas2rad(fov)
     bmax = (wl / fov) * npts
     maxX = rad2mas(wl * npts / bmax) / 2.0
     xScales = np.linspace(0, 2 * maxX, npts) - maxX
     pixel_size = rad2mas(fov) / npts
-    extent_ima = (
-        np.array((xScales.max(), xScales.min(), xScales.min(), xScales.max()))
-        + pixel_size / 2.0
-    )
+    extent_ima = np.array((xScales.max(), xScales.min(), xScales.min(), xScales.max()))
     pixel_size = rad2mas(fov) / npts  # Pixel size of the image [mas]
+
+    pixel_size_grid = grid.psize
+
+    if verbose:
+        print(f"The pixel size need to be > {pixel_size_grid:2.4f} ({pixel_size:2.4f})")
     # # Creat UV coord
     UVTable = UVGrid(bmax, npts) / 2.0  # Factor 2 due to the fft
     Utable = UVTable[:, 0]
@@ -806,32 +911,32 @@ def combine_grid_geom_model_image(
     # Amplify spectral line (mimic temperature increase)
 
     fs = 1 - fh - fc
-
     mm = grid.flux.copy() - 1
     mm[mm > 0] = mm[mm > 0] * ampli_factor
     mm += 1
     fmag = fs * mm
     ftot = fmag + fh + fc
-    ftot = gaussian_filter1d(ftot, sigma=23.0 / 2.355)
+    # ftot = gaussian_filter1d(ftot, sigma=23.0 / 2.355)
 
     fmag_im = fmag[index_image]
     ftot_im = ftot[index_image]
 
     vis = (fmag_im * vis_mag + fc * vis_disk) / (ftot_im)
 
-    print(
-        "Magnetosphere contribution = %2.1f %% (lcr = %2.2f)"
-        % (100 * fmag_im / (fmag_im + fh + fc), mm[index_image])
-    )
+    if verbose:
+        print(
+            "Magnetosphere contribution = %2.1f %% (lcr = %2.2f)"
+            % (100 * fmag_im / (fmag_im + fh + fc), mm[index_image])
+        )
     fwhm_apod = 5e4
     # Apodisation
     x, y = np.meshgrid(range(npts), range(npts))
     freq_max = rad2arcsec(bmax / wl) / 2.0
     pix_vis = 2 * freq_max / npts
-    freq_map = np.sqrt((x - (npts / 2.0)) ** 2 + (y - (npts / 2.0)) ** 2) * pix_vis
+    freq_map = np.sqrt((x - (npts / 2.0)) ** 2 + (y - (npts / 2.0)) ** 2) * pix_vis / 4
 
-    x = np.squeeze(np.linspace(0, 1.5 * np.sqrt(freq_max ** 2 + freq_max ** 2), npts))
-    y = np.squeeze(np.exp(-(x ** 2) / (2 * (fwhm_apod / 2.355) ** 2)))
+    x = np.squeeze(np.linspace(0, 1.5 * np.sqrt(freq_max**2 + freq_max**2), npts))
+    y = np.squeeze(np.exp(-(x**2) / (2 * (fwhm_apod / 2.355) ** 2)))
 
     f = interp1d(x, y)
     img_apod = f(freq_map.flat).reshape(freq_map.shape)
@@ -840,7 +945,256 @@ def combine_grid_geom_model_image(
     fftVis = np.fft.ifft2(im_vis)
     image = np.fft.fftshift(abs(fftVis))
     tmp = np.fliplr(image)
-    image_orient = tmp  # / np.max(tmp)
-    image_orient /= image_orient.sum()
+    image_orient = tmp / np.sum(tmp)
     image_orient *= ftot_im
+
+    if rotation != 0:
+        image_orient = rotate(image, rotation, reshape=False)
+
+    # image_orient = cv.GaussianBlur(image_orient, (7, 7), 0)
     return image_orient, pixel_size, extent_ima, ftot
+
+
+def compute_pdf_chi2(data, param, fitOnly=None, use_flag=True, normalizeErrors=False):
+    """Compute panda dataframe from a dataset (splitted between vis2 and cp).
+    Use those pdf to compute the individual chi2 (compared to models stands by
+    param) and global.
+    Parameters:
+    -----------
+    `data` {list}:
+        List of dataset from load(),\n
+    `param` {dict}:
+        Parameters for the models,\n
+    `fitOnly` {list}:
+        List of fitted parameters (if any) to compute the degree of freedom,\n
+    `use_flag` {bool}:
+        If True, the flags are used.
+
+    Outputs:
+    --------
+    `df_v2` {pandas}:
+        Panda dataframe of the vis2,\n
+    `df_cp` {pandas}:
+        Panda dataframe of the cp,\n
+    `chi2_global` {float}:
+        chi2 global for the model,\n
+    `chi2_vis2` {float}:
+        chi2 for the vis2,\n
+    `chi2_cp` {float}:
+        chi2 for the cp.
+    """
+    l_mod = compute_geom_model_fast(data, param, ncore=4)
+    mod_cp, mod_v2 = [], []
+    for i in range(len(l_mod)):
+        mod_cp.append(l_mod[i]["cp"])
+    for i in range(len(l_mod)):
+        mod_v2.append(l_mod[i]["vis2"])
+
+    if fitOnly is None:
+        fitOnly = []
+    input_keys_v2 = [
+        "vis2",
+        "e_vis2",
+        "freq_vis2",
+        "wl",
+        "blname",
+        "set",
+        "flag_vis2",
+    ]
+    input_keys_cp = ["cp", "e_cp", "freq_cp", "wl", "cpname", "set", "flag_cp"]
+
+    dict_obs_cp = {}
+    for k in input_keys_cp:
+        dict_obs_cp[k] = []
+    dict_obs_v2 = {}
+    for k in input_keys_v2:
+        dict_obs_v2[k] = []
+
+    nobs = 0
+    for d in data:
+        for k in input_keys_cp:
+            nbl = d.cp.shape[0]
+            nwl = d.cp.shape[1]
+            if k == "wl":
+                for _ in range(nbl):
+                    dict_obs_cp[k].extend(np.round(d[k] * 1e6, 3))
+            elif k == "cpname":
+                for j in range(nbl):
+                    for _ in range(nwl):
+                        dict_obs_cp[k].append(d[k][j])
+            elif k == "set":
+                for _ in range(nbl):
+                    for _ in range(nwl):
+                        dict_obs_cp[k].append(nobs)
+            else:
+                dict_obs_cp[k].extend(d[k].flatten())
+        for k in input_keys_v2:
+            nbl = d.vis2.shape[0]
+            nwl = d.vis2.shape[1]
+            if k == "wl":
+                for _ in range(nbl):
+                    dict_obs_v2[k].extend(np.round(d[k] * 1e6, 3))
+            elif k == "blname":
+                for j in range(nbl):
+                    for _ in range(nwl):
+                        dict_obs_v2[k].append(d[k][j])
+            elif k == "set":
+                for _ in range(nbl):
+                    for _ in range(nwl):
+                        dict_obs_v2[k].append(nobs)
+            else:
+                dict_obs_v2[k].extend(d[k].flatten())
+        nobs += 1
+
+    dict_obs_cp["mod"] = np.array(mod_cp).flatten()
+    dict_obs_cp["res"] = (dict_obs_cp["cp"] - dict_obs_cp["mod"]) / dict_obs_cp["e_cp"]
+    dict_obs_v2["mod"] = np.array(mod_v2).flatten()
+    dict_obs_v2["res"] = (dict_obs_v2["vis2"] - dict_obs_v2["mod"]) / dict_obs_v2[
+        "e_vis2"
+    ]
+
+    if use_flag:
+        flag = np.array(dict_obs_cp["flag_cp"])
+        flag_nan = np.isnan(np.array(dict_obs_cp["cp"]))
+        for k in dict_obs_cp.keys():
+            dict_obs_cp[k] = np.array(dict_obs_cp[k])[~flag & ~flag_nan]
+        flag2 = np.array(dict_obs_v2["flag_vis2"])
+        flag_nan2 = np.isnan(np.array(dict_obs_v2["vis2"]))
+        for k in dict_obs_v2.keys():
+            dict_obs_v2[k] = np.array(dict_obs_v2[k])[~flag2 & ~flag_nan2]
+
+    df_v2 = pd.DataFrame(dict_obs_v2)
+    df_cp = pd.DataFrame(dict_obs_cp)
+
+    d_freedom = len(fitOnly)
+    chi2_vis2_full = np.sum(
+        (df_v2["vis2"] - df_v2["mod"]) ** 2 / (df_v2["e_vis2"]) ** 2
+    )
+    chi2_vis2 = chi2_vis2_full / (len(df_v2["e_vis2"]) - (d_freedom - 1))
+
+    chi2_cp_full = np.sum((df_cp["cp"] - df_cp["mod"]) ** 2 / (df_cp["e_cp"]) ** 2)
+    chi2_cp = chi2_cp_full / (len(df_cp["e_cp"]) - (d_freedom - 1))
+
+    nv2 = len(df_v2["vis2"])
+    ncp = len(df_cp["cp"])
+    nobs = nv2 + ncp
+    obs = np.zeros(nobs)
+    e_obs = np.zeros(nobs)
+    all_mod = np.zeros(nobs)
+
+    norm_v2, norm_cp = 1, 1
+    if normalizeErrors:
+        if nv2 > ncp:
+            norm_v2 = np.sqrt(nv2 / ncp)
+            norm_cp = 1.0
+        else:
+            norm_v2 = 1
+            norm_cp = np.sqrt(ncp / nv2)
+
+    # print(0.02 * norm_v2)
+    for i in range(len(df_v2["vis2"])):
+        obs[i] = df_v2["vis2"][i]
+        e_obs[i] = df_v2["e_vis2"][i] * norm_v2
+        all_mod[i] = df_v2["mod"][i]
+    for i in range(len(df_cp["cp"])):
+        obs[i + nv2] = df_cp["cp"][i]
+        e_obs[i + nv2] = df_cp["e_cp"][i] * norm_cp
+        all_mod[i + nv2] = df_cp["mod"][i]
+    chi2_global = np.sum((obs - all_mod) ** 2 / (e_obs) ** 2) / (nobs - (d_freedom - 1))
+    return df_v2, df_cp, chi2_global, chi2_vis2, chi2_cp
+
+
+def plot_chi2_lk(
+    dataset, fit, *, fitOnly, cons=True, norm=False, verbose=False, display=True
+):
+    """Plot chi2 curve of the ratio a/ak for the lazareff model. The return
+    results are the best fitted w and the upper and lower limit. The search of
+    minimum chi2 can be:
+        - conservative (`cons`=True), the reduced chi2 is used and normalized by
+        the sqrt(chi2_r), this approach corresponds to a fully correlated data
+        points and retrieves usually over estimated error bars (but the
+        normalization allows us to mitigate this effects),
+        - optimistic (`cons`=False), the chi2 is used and not normalized. This
+        approach is used when the data points are uncorrelated (independant).
+       Generally under estimates the error bars."""
+    l_chi2 = []
+    l_w = []
+    l_lk = np.linspace(-1, 1, 100)
+    input_param = fit["best"].copy()
+
+    ind_stat = 1
+    if not cons:
+        ind_stat = 5
+
+    for lk in l_lk:
+        input_param["lk"] = lk
+        stat = oimalib.plot_residuals(
+            dataset,
+            input_param,
+            fitOnly=fitOnly,
+            normalizeErrors=norm,
+            verbose=False,
+            display=False,
+        )
+
+        ar = 10 ** input_param["la"] / (np.sqrt(1 + 10 ** (2 * input_param["lk"])))
+        ak = ar * (10 ** input_param["lk"])
+        a = (ar**2 + ak**2) ** 0.5
+        w = ak / a
+        if verbose:
+            print(
+                "lk = %2.2f (chi2 = %2.2f): w = %2.2f, ar = %2.2f, ak = %2.2f"
+                % (lk, stat[ind_stat], w, ar, ak)
+            )
+        l_w.append(w)
+        l_chi2.append(stat[ind_stat])
+    l_w = np.array(l_w)
+    l_chi2 = np.array(l_chi2)
+    # l_chi2 -= l_chi2.min()
+    # l_chi2 += 1
+
+    cons_w = l_w[l_chi2 <= l_chi2.min() + 1]
+    w_best = l_w[np.argmin(l_chi2)] * 1e2
+
+    up_w = cons_w[-1]
+
+    arg_up = np.where(up_w == l_w)[0][0]
+
+    w_limit = l_w[arg_up] * 1e2
+
+    norm_value = 1
+    name_norm = ""
+    label = r"$\chi^2$"
+    if cons:
+        name_norm = r" ($\sqrt{\chi^2_r}$)"
+        label = r"$\chi^2_r$"
+        norm_value = np.sqrt(l_chi2.min())
+
+    w_up = (w_limit - w_best) / norm_value
+    w_low = abs(w_best - 10) / norm_value
+
+    if display:
+        plt.figure()
+        plt.title(
+            r"$w = %2.0f^{+%2.0f}_{-%2.0f}$ (norm = %2.1f%s)"
+            % (w_best, w_up, abs(w_low), norm_value, name_norm)
+        )
+        plt.plot(1e2 * l_w, l_chi2)
+        plt.plot(
+            w_best,
+            l_chi2.min(),
+            "ro",
+            label="$w_{best}$ = %2.0f %%" % w_best,
+        )
+        plt.plot(
+            w_limit,
+            l_chi2[arg_up],
+            "bo",
+            label="$w_{limit}$ = %2.0f %%" % w_limit,
+        )
+        plt.xlabel("$w$ [%]")
+        plt.ylabel(label)
+        plt.legend()
+        plt.tight_layout()
+
+    return w_best / 1e2, w_up, w_low
