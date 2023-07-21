@@ -741,14 +741,15 @@ def smartfit(
     """
     if tobefit is None:
         tobefit = ["CP", "V2"]
+    if prior is None:
+        prior = {}
+
     first_guess["fitted"] = tobefit
     first_guess["prior"] = prior
     first_guess["fitOnly"] = fitOnly
     # -- avoid fitting string parameters
     tmp = list(filter(lambda x: isinstance(first_guess[x], str), first_guess.keys()))
 
-    if prior is None:
-        prior = {}
     if type(data) is not list:
         data = [data]
 
