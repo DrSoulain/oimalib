@@ -1,0 +1,92 @@
+[build-system]
+requires = ["setuptools",  "setuptools-scm", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "magneto"
+version = "0.1"
+authors = [
+    { name = "Anthony Soulain", email = "anthony.soulain@univ-grenoble-alpes.fr" },
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX :: AIX",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Typing :: Typed",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "astropy>=5.0",
+    "astroquery",
+    "corner",
+    "emcee",
+    "h5py",
+    "matplotlib",
+    "numpy",
+    "pypdf>=3.2.0",
+    "scipy",
+    "tabulate",
+    "termcolor",
+    "tqdm",
+    "uncertainties",
+    "importlib_resources>=1.3; python_version < '3.9'",
+    "seaborn",
+    "munch",
+]
+
+[project.readme]
+file = "README.md"
+content-type = "text/markdown"
+
+[tool.setuptools]
+license-files = [
+    "LICENSE",
+]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+exclude = [
+    "tests*",
+    "doc*",
+]
+namespaces = false
+
+[tool.setuptools.package-data]
+magneto = [
+    "internal_data/*.fits",
+]
+
+[tool.black]
+line-length = 88
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
+[tool.ruff]
+target-version = "py38" # https://github.com/charliermarsh/ruff/issues/2039
+exclude = ["*__init__.py"]
+ignore = ["E501"]
+select = [
+    "E",
+    "F",
+    "W",
+    "B",
+    "I",
+    "UP",
+]
+
+[tool.ruff.isort]
+combine-as-imports = true
+
+[tool.coverage.report]
+omit = [
+  "magneto/tests/*"
+]
