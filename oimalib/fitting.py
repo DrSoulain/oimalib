@@ -13,11 +13,10 @@ from tqdm import tqdm
 from uncertainties import ufloat
 
 import oimalib
+
 from . import complex_models
 from .fit.dpfit import leastsqFit
-from .tools import compute_oriented_shift
-from .tools import mas2rad
-from .tools import round_sci_digit
+from .tools import compute_oriented_shift, mas2rad, round_sci_digit
 
 if sys.platform == "darwin":
     multiprocessing.set_start_method("fork", force=True)
@@ -642,19 +641,19 @@ def compute_chi2_curve(
         left_curve = interp1d(l_chi2r[c_left], array_params[c_left])
         left_res = left_curve(chi2r_m + sigma)
         dr1_r = abs(fitted_param - left_res)
-        dr1_r = round_sci_digit(dr1_r)[0]
+        dr1_r = round_sci_digit(dr1_r[0])[0]
     except ValueError:
         dr1_r = array_params[0] - fit_theta
-        dr1_r = round_sci_digit(dr1_r)[0]
+        dr1_r = round_sci_digit(dr1_r[0])[0]
 
     try:
         right_curve = interp1d(l_chi2r[c_right], array_params[c_right])
         right_res = right_curve(chi2r_m + sigma)
         dr2_r = abs(fitted_param - right_res)
-        dr2_r = round_sci_digit(dr2_r)[0]
+        dr2_r = round_sci_digit(dr2_r[0])[0]
     except ValueError:
         dr2_r = array_params[-1] - fit_theta
-        dr2_r = round_sci_digit(dr2_r)[0]
+        dr2_r = round_sci_digit(dr2_r[0])[0]
 
     bound = np.array([dr1_r, dr2_r])
     bound = bound[~np.isnan(bound)]
