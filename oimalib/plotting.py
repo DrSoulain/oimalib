@@ -2882,7 +2882,8 @@ def _plot_cp_residuals(
 
 
 def symmetrical_colormap(cmap_settings, new_name=None):
-    """This function take a colormap and create a new one, as the concatenation of itself by a symmetrical fold."""
+    """This function take a colormap and create a new one, as the concatenation
+    of itself by a symmetrical fold."""
     # get the colormap
     cmap = matplotlib.colormaps[cmap_settings]
     if not new_name:
