@@ -86,35 +86,10 @@ select = [
 [tool.ruff.isort]
 combine-as-imports = true
 
-filterwarnings = [
-    "error",
-    # imp is indirectly used by uncertainties, see https://github.com/lebigot/uncertainties/issues/145
-    "ignore:the imp module is deprecated in favour of importlib; see the module's documentation for alternative uses:DeprecationWarning",
-    # the deprecation warning message for imp changed in Python 3.10, so we ignore both versions
-    "ignore:the imp module is deprecated in favour of importlib and slated for removal in Python 3.12; see the module's documentation for alternative uses:DeprecationWarning",
-    # this warning is emmited from astropy 5.0, it needs to be fixed upstream
-    "ignore:The distutils package is deprecated and slated for removal in Python 3.12. Use setuptools or check PEP 632 for potential alternatives:DeprecationWarning",
-    # this is emmited from scipy
-    "ignore:The distutils.sysconfig module is deprecated, use sysconfig instead:DeprecationWarning",
-    # we run tests against a non-GUI backend on purpose
-    "ignore:Matplotlib is currently using agg, which is a non-GUI backend, so cannot show the figure.:UserWarning",
-    # we ignore astropy warning (PyObject)
-    "ignore:numpy.ndarray size changed, may indicate binary incompatibility. Expected 80 from C header, got 96 from PyObject:RuntimeWarning",
-    # we ignore astropy warning (PyObject)
-    "ignore:numpy.ndarray size changed, may indicate binary incompatibility. Expected 88 from C header, got 96 from PyObject:RuntimeWarning",
-    # we ignore astropy warning (PyObject)
-    "ignore:numpy.ndarray size changed, may indicate binary incompatibility. Expected 80 from C header, got 88 from PyObject:RuntimeWarning",
-    # seaborn DeprecationWarning
-    "ignore:distutils Version classes are deprecated. Use packaging.version instead.:DeprecationWarning",
-    # seaborn warning with Matplotlib
-    "ignore:Auto-removal of grids by pcolor() and pcolormesh() is deprecated since 3.5 and will be removed two minor releases later; please call grid(False) first.:matplotlib._api.deprecation.MatplotlibDeprecationWarning",
-]
-
 [tool.coverage.run]
 omit = [
    "oimalib/fit/*",
 ]
-
 
 [tool.coverage.report]
 omit = [
