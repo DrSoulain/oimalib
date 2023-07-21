@@ -7,42 +7,50 @@ OIMALIB: Optical Interferometry Modelisation and Analysis Library
 Set of function to plot oi data, u-v plan, models, etc.
 -----------------------------------------------------------------
 """
+import sys
+
 import matplotlib
 import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
-import pkg_resources
 import seaborn as sns
 from astropy.io import fits
-from matplotlib import patches
-from matplotlib import pyplot as plt
+from matplotlib import patches, pyplot as plt
 from matplotlib.colors import PowerNorm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.constants import c as c_light
 from scipy.interpolate import interp1d
-from scipy.ndimage import center_of_mass
-from scipy.ndimage import rotate
+from scipy.ndimage import center_of_mass, rotate
 from termcolor import cprint
 from uncertainties import unumpy
 
+if sys.version_info >= (3, 9):
+    import importlib.resources as importlib_resources
+else:
+    import importlib_resources
+
 from oimalib.complex_models import visGaussianDisk
-from oimalib.fitting import check_params_model
-from oimalib.fitting import format_obs
-from oimalib.fitting import get_mcmc_results
-from oimalib.fitting import model_flux
-from oimalib.fitting import model_flux_red_abs
-from oimalib.fitting import model_pcshift
-from oimalib.fitting import select_model
+from oimalib.fitting import (
+    check_params_model,
+    format_obs,
+    get_mcmc_results,
+    model_flux,
+    model_flux_red_abs,
+    model_pcshift,
+    select_model,
+)
 from oimalib.fourier import UVGrid
 from oimalib.modelling import compute_geom_model_fast
-from oimalib.tools import cart2pol
-from oimalib.tools import find_nearest
-from oimalib.tools import hide_xlabel
-from oimalib.tools import mas2rad
-from oimalib.tools import normalize_continuum
-from oimalib.tools import plot_vline
-from oimalib.tools import rad2arcsec
-from oimalib.tools import rad2mas
+from oimalib.tools import (
+    cart2pol,
+    find_nearest,
+    hide_xlabel,
+    mas2rad,
+    normalize_continuum,
+    plot_vline,
+    rad2arcsec,
+    rad2mas,
+)
 
 dic_color = {
     "A0-B2": "#928a97",  # SB
@@ -148,7 +156,7 @@ def plot_oidata(
     Parameters:
     -----------
     `tab` {list}:
-        list of data from amical.load(),\n
+        list of data from oimalib.load(),\n
     `use_flag` {boolean}:
         If True, use flag from the oifits file (selected if select_data()
         was used before),\n
@@ -547,7 +555,7 @@ def plot_residuals(
     Parameters:
     -----------
     `data` {list, dict}:
-        data or list of data from amical.load(),\n
+        data or list of data from oimalib.load(),\n
     `param` {dict}:
         Parameters of the model,\n
     `fitOnly` {list}:
@@ -2448,11 +2456,9 @@ def check_closed_triplet(data, i=0):
 
 
 def plot_tellu(label=None, plot_ind=False, val=5000, lw=0.5):
-    file_tellu = pkg_resources.resource_stream(
-        "oimalib", "internal_data/Telluric_lines.txt"
-    )
+    datadir = importlib_resources.files("oimalib") / "internal_data"
+    file_tellu = datadir / "Telluric_lines.txt"
     tellu = np.loadtxt(file_tellu, skiprows=1)
-    file_tellu.close()
     plt.axvline(np.nan, lw=lw, c="gray", alpha=0.5, label=label)
     for i in range(len(tellu)):
         plt.axvline(tellu[i], lw=lw, c="crimson", ls="--", alpha=0.5)
