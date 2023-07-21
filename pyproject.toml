@@ -1,5 +1,66 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=61.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oimalib"
+version = "1.0"
+authors = [
+    { name = "Anthony Soulain", email = "anthony.soulain@univ-grenoble-alpes.fr" },
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX :: AIX",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Typing :: Typed",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "astropy>=5.0",
+    "astroquery",
+    "corner",
+    "emcee",
+    "h5py",
+    "matplotlib",
+    "numpy",
+    "pypdf>=3.2.0",
+    "scipy",
+    "tabulate",
+    "termcolor",
+    "tqdm",
+    "uncertainties",
+    "importlib_resources>=1.3; python_version < '3.9'",
+    "seaborn",
+    "munch",
+]
+
+[project.readme]
+file = "README.md"
+content-type = "text/markdown"
+
+[tool.setuptools]
+license-files = [
+    "LICENSE",
+]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+exclude = [
+    "tests*",
+    "doc*",
+]
+namespaces = false
+
+[tool.setuptools.package-data]
+oimalib = [
+    "internal_data/*.fits",
+]
 
 [tool.black]
 line-length = 88
@@ -9,29 +70,21 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
 
-filterwarnings = [
-    "error",
-    # imp is indirectly used by uncertainties, see https://github.com/lebigot/uncertainties/issues/145
-    "ignore:the imp module is deprecated in favour of importlib; see the module's documentation for alternative uses:DeprecationWarning",
-    # the deprecation warning message for imp changed in Python 3.10, so we ignore both versions
-    "ignore:the imp module is deprecated in favour of importlib and slated for removal in Python 3.12; see the module's documentation for alternative uses:DeprecationWarning",
-    # this warning is emmited from astropy 5.0, it needs to be fixed upstream
-    "ignore:The distutils package is deprecated and slated for removal in Python 3.12. Use setuptools or check PEP 632 for potential alternatives:DeprecationWarning",
-    # this is emmited from scipy
-    "ignore:The distutils.sysconfig module is deprecated, use sysconfig instead:DeprecationWarning",
-    # we run tests against a non-GUI backend on purpose
-    "ignore:Matplotlib is currently using agg, which is a non-GUI backend, so cannot show the figure.:UserWarning",
-    # we ignore astropy warning (PyObject)
-    "ignore:numpy.ndarray size changed, may indicate binary incompatibility. Expected 80 from C header, got 96 from PyObject:RuntimeWarning",
-    # we ignore astropy warning (PyObject)
-    "ignore:numpy.ndarray size changed, may indicate binary incompatibility. Expected 88 from C header, got 96 from PyObject:RuntimeWarning",
-    # we ignore astropy warning (PyObject)
-    "ignore:numpy.ndarray size changed, may indicate binary incompatibility. Expected 80 from C header, got 88 from PyObject:RuntimeWarning",
-    # seaborn DeprecationWarning
-    "ignore:distutils Version classes are deprecated. Use packaging.version instead.:DeprecationWarning",
-    # seaborn warning with Matplotlib
-    "ignore:Auto-removal of grids by pcolor() and pcolormesh() is deprecated since 3.5 and will be removed two minor releases later; please call grid(False) first.:matplotlib._api.deprecation.MatplotlibDeprecationWarning",
+[tool.ruff]
+target-version = "py38" # https://github.com/charliermarsh/ruff/issues/2039
+exclude = ["*__init__.py", "amical/externals/*"]
+ignore = ["E501"]
+select = [
+    "E",
+    "F",
+    "W",
+    "B",
+    "I",
+    "UP",
 ]
+
+[tool.ruff.isort]
+combine-as-imports = true
 
 [tool.coverage.run]
 omit = [
@@ -43,12 +96,3 @@ omit = [
   "oimalib/fit/*",
   "oimalib/tests/*"
 ]
-
-[tool.mypy]
-python_version = 3.8
-ignore_missing_imports = true
-warn_unused_configs = true
-warn_unused_ignores = true
-warn_unreachable = true
-show_error_context = true
-show_error_codes = true

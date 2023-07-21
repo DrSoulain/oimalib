@@ -68,7 +68,8 @@ def _compute_cp_name(index_cp, index_ref, teles_ref):
 
 def dir2data(filedir, ext="fits"):
     """
-    Format all data from different oifits files in filedir to the list usable by the other functions.
+    Format all data from different oifits files in filedir to the list usable
+    by the other functions.
     """
     listfile = glob(os.path.join(filedir, "*.%s" % ext))
     tab = []
@@ -149,13 +150,14 @@ def load(namefile, cam="SC", split=False, simu=False, pola=None):
         fitsHandler.close()
         if test_cp:
             print(
-                "Your dataset seems to be a simulation (from aspro2), you should add simu=True.",
+                "Your dataset seems to be a simulation (from aspro2), you should"
+                + "add simu=True.",
                 file=sys.stderr,
             )
         else:
             print(
-                "Your dataset have not OI_T3 with the supported index (%i), try another dataset."
-                % index_cam,
+                "Your dataset have not OI_T3 with the supported index (%i)"
+                + ", try another dataset." % index_cam,
                 file=sys.stderr,
             )
         return None
@@ -177,14 +179,21 @@ def load(namefile, cam="SC", split=False, simu=False, pola=None):
     flag_vis2 = fitsHandler["OI_VIS2", index_cam].data.field("FLAG")
     u = fitsHandler["OI_VIS2", index_cam].data.field("UCOORD")
     v = fitsHandler["OI_VIS2", index_cam].data.field("VCOORD")
-    B = np.sqrt(u ** 2 + v ** 2)
+    B = np.sqrt(u**2 + v**2)
 
-    # OI_VIS table
-    dvis = fitsHandler["OI_VIS", index_cam].data.field("VISAMP")
-    e_dvis = fitsHandler["OI_VIS", index_cam].data.field("VISAMPERR")
-    dphi = fitsHandler["OI_VIS", index_cam].data.field("VISPHI")
-    e_dphi = fitsHandler["OI_VIS", index_cam].data.field("VISPHIERR")
-    flag_dvis = fitsHandler["OI_VIS", index_cam].data.field("FLAG")
+    try:
+        # OI_VIS table
+        dvis = fitsHandler["OI_VIS", index_cam].data.field("VISAMP")
+        e_dvis = fitsHandler["OI_VIS", index_cam].data.field("VISAMPERR")
+        dphi = fitsHandler["OI_VIS", index_cam].data.field("VISPHI")
+        e_dphi = fitsHandler["OI_VIS", index_cam].data.field("VISPHIERR")
+        flag_dvis = fitsHandler["OI_VIS", index_cam].data.field("FLAG")
+    except KeyError:
+        dvis = np.zeros_like(vis2)
+        e_dvis = np.zeros_like(vis2)
+        dphi = np.zeros_like(vis2)
+        e_dphi = np.zeros_like(vis2)
+        flag_dvis = flag_vis2
 
     try:
         dat = fitsHandler[0].header["DATE-OBS"]
