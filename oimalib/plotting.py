@@ -7,12 +7,14 @@ OIMALIB: Optical Interferometry Modelisation and Analysis Library
 Set of function to plot oi data, u-v plan, models, etc.
 -----------------------------------------------------------------
 """
+import matplotlib
 import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 import pkg_resources
 import seaborn as sns
 from astropy.io import fits
+from matplotlib import patches
 from matplotlib import pyplot as plt
 from matplotlib.colors import PowerNorm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
@@ -33,6 +35,7 @@ from oimalib.fitting import model_pcshift
 from oimalib.fitting import select_model
 from oimalib.fourier import UVGrid
 from oimalib.modelling import compute_geom_model_fast
+from oimalib.tools import cart2pol
 from oimalib.tools import find_nearest
 from oimalib.tools import hide_xlabel
 from oimalib.tools import mas2rad
@@ -43,19 +46,24 @@ from oimalib.tools import rad2mas
 
 dic_color = {
     "A0-B2": "#928a97",  # SB
+    "A0-B5": "#928a97",  # SB
     "A0-D0": "#7131CC",
     "A0-C1": "#ffc93c",
     "B2-C1": "indianred",
     "B2-D0": "#086972",
+    "B5-J6": "#086972",
     "C1-D0": "#3ec1d3",
     "D0-G2": "#f37735",  # MB
     "D0-J3": "#4b86b4",
+    "J2-J6": "#4b86b4",
     "D0-K0": "#CC9E3D",
     "G2-J3": "#d11141",
+    "A0-J6": "#00b159",
     "G2-K0": "#A6DDFF",
     "J3-K0": "#00b159",
     "A0-G1": "#96d47c",  # LB
     "A0-J2": "#f38181",
+    "B5-J2": "#f38181",
     "A0-J3": "#1f5f8b",
     "G1-J2": "#a393eb",
     "G1-J3": "#eedf6b",
@@ -63,12 +71,24 @@ dic_color = {
     "J2-K0": "c",
     "A0-K0": "#8d90a1",
     "G1-K0": "#ffd100",
-    "U1-U2": "#82b4bb",
+    "U1-U2": "#f1ca7f",
     "U2-U3": "#255e79",
-    "U3-U4": "#5ec55e",
+    "U3-U4": "#5cc18f",
     "U2-U4": "#ae3c60",
-    "U1-U3": "#e35d5e",
-    "U1-U4": "#f1ca7f",
+    "U1-U3": "#e189b1",
+    "U1-U4": "tab:blue",
+    "UT1-UT2": "#cf962a",
+    "UT2-UT3": "#255e79",
+    "UT3-UT4": "#4d9d4d",
+    "UT2-UT4": "#ae3c60",
+    "UT1-UT3": "#e4845e",
+    "UT1-UT4": "#82b4bb",
+    "S2-W1": "#82b4bb",
+    "E1-E2": "#255e79",
+    "W2-E2": "#5ec55e",
+    "W1-W2": "#ae3c60",
+    "W2-E1": "#e35d5e",
+    "S2-W2": "#f1ca7f",
 }
 
 err_pts_style = {
@@ -77,7 +97,7 @@ err_pts_style = {
     "marker": ".",
     "elinewidth": 0.5,
     "alpha": 1,
-    "ms": 5,
+    # "ms": 5,
 }
 
 err_pts_style_pco = {
@@ -93,6 +113,18 @@ err_pts_style_pco = {
 
 
 # Plot data and models (mainly V2 and CP)
+
+
+def set_cbar(sc, ax=None, clabel=""):
+    if ax is None:
+        ax = plt.gca()
+    cbar_kws = {
+        "label": clabel,
+    }
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="3%", pad=0.05)
+    cbar = plt.colorbar(sc, **cbar_kws, cax=cax)
+    cbar.ax.tick_params(size=0)
 
 
 def plot_oidata(
@@ -183,6 +215,7 @@ def plot_oidata(
     else:
         ylabel = r"Vis. Amp."
 
+    sns.set_context("poster", font_scale=0.7)
     fig = plt.figure(figsize=(8, 6))
     ax1 = plt.subplot2grid((5, 1), (0, 0), rowspan=3)
     list_bl = []
@@ -318,7 +351,8 @@ def plot_oidata(
         )
         cb = plt.colorbar(sc, cax=cax, orientation="horizontal")
         cb.ax.set_title(r"$\lambda$ [µm]", fontsize=9)
-    ax1.set_ylabel(ylabel, fontsize=12)
+    ax1.set_ylabel(ylabel)  # , fontsize=12)
+    ax1.set_xlabel(r"Sp. Freq [arcsec$^{-1}$]")
     ax1.grid(alpha=0.3)
 
     set_cp = 1
@@ -328,10 +362,8 @@ def plot_oidata(
     ax2 = plt.subplot2grid((5, 1), (3, 0), rowspan=2)
     if not is_nrm:
         if array_name == "CHARA":
-            fontsize = 5
             ax2.set_prop_cycle("color", plt.cm.turbo(np.linspace(0, 1, ncp_master)))
         elif array_name == "VLTI":
-            fontsize = 7
             if set_cp == 1:
                 ax2.set_prop_cycle(
                     "color",
@@ -354,7 +386,6 @@ def plot_oidata(
                 ax2.set_prop_cycle("color", plt.cm.turbo(np.linspace(0, 1, ncp_master)))
 
         else:
-            fontsize = 7
             ax2.set_prop_cycle("color", plt.cm.Set2(np.linspace(0, 1, 8)))
         color_cp = None
     else:
@@ -397,6 +428,8 @@ def plot_oidata(
             if triplet in color_cp_dic.keys():
                 color_cp = color_cp_dic[triplet]
 
+            color_cp = "tab:blue"
+            label = ""
             if not color:
                 ebar = ax2.errorbar(
                     freq_cp, cp, yerr=e_cp, label=label, color=color_cp, **err_pts_style
@@ -419,18 +452,19 @@ def plot_oidata(
                     alpha=0.7,
                 )
 
-    if (is_nrm) | (not color):
-        ax2.legend(fontsize=fontsize)
-    ax2.set_ylabel(r"CP [deg]", fontsize=12)
-    ax2.set_xlabel(r"Sp. Freq [arcsec$^{-1}$]", fontsize=12)
+    # if (is_nrm) | (not color):
+    #     ax2.legend(fontsize=fontsize)
+    ax2.set_ylabel(r"CP [deg]")  # , fontsize=12)
+    ax2.set_xlabel(r"Sp. Freq [arcsec$^{-1}$]")  # , fontsize=12)
     ax2.set_ylim(-cp_max, cp_max)
     ax2.set_xlim(fmin - 2, fmax + 2 + offset)
     ax2.grid(alpha=0.2)
     plt.tight_layout()
+    plt.subplots_adjust(wspace=0.5)
     return fig
 
 
-def plot_uv(tab, bmax=150, rotation=0):
+def plot_uv(tab, bmax=150, rotation=0, *, ax=None, ms=4, legend=True, aligned=False):
     """
     Plot the u-v coverage.
 
@@ -438,7 +472,8 @@ def plot_uv(tab, bmax=150, rotation=0):
     -----------
 
     `tab` {list}:
-        list containing of data from OiFile2Class function (size corresponding to the number of files),\n
+        list containing of data from OiFile2Class function (size corresponding
+        to the number of files),\n
     `bmax` {float}:
         Limits of the plot [Mlambda],\n
     `rotation` {float}:
@@ -452,46 +487,58 @@ def plot_uv(tab, bmax=150, rotation=0):
 
     bmax = bmax / wl_ref
 
-    fig = plt.figure(figsize=(6.5, 6))
-    ax = plt.subplot(111)
+    if ax is None:
+        plt.figure(figsize=(6.5, 6))
+        ax = plt.subplot(111)
 
     ax2 = ax.twinx()
     ax3 = ax.twiny()
 
-    _plot_uvdata_coord(tab, ax=ax, rotation=rotation)
+    _plot_uvdata_coord(tab, ax=ax, rotation=rotation, ms=ms)
 
-    ax.patch.set_facecolor("#f7f9fc")
-    ax.set_xlim([-bmax, bmax])
-    ax.set_ylim([-bmax, bmax])
-    ax2.set_ylim([-bmax * wl_ref, bmax * wl_ref])
-    ax3.set_xlim([-bmax * wl_ref, bmax * wl_ref])
-    plt.grid(alpha=0.5, linestyle=":")
-    ax.axvline(0, linewidth=1, color="gray", alpha=0.2)
-    ax.axhline(0, linewidth=1, color="gray", alpha=0.2)
-    ax.set_xlabel(r"U [M$\lambda$]")
-    ax.set_ylabel(r"V [M$\lambda$]")
-    ax2.set_ylabel("V [m] - East", color="#007a59")
-    ax3.set_xlabel("U [m] (%2.2f µm) - North" % wl_ref, color="#007a59")
+    x = 1
+    if aligned:
+        x = -1
+    # ax.patch.set_facecolor("#f7f9fc")
+    ax.set_xlim(np.array([-bmax, bmax]) * x)
+    ax.set_ylim(np.array([-bmax, bmax]))
+    ax2.set_ylim(np.array([-bmax * wl_ref, bmax * wl_ref]))
+    ax3.set_xlim(np.array([-bmax * wl_ref, bmax * wl_ref]) * x)
+    # ax.grid(alpha=0.5, linestyle=":")
+    # ax3.grid(alpha=0.5)
+    # ax.axvline(0, linewidth=1, color="gray", alpha=0.2)
+    # ax.axhline(0, linewidth=1, color="gray", alpha=0.2)
+    ax.set_xlabel(r"U [M$\lambda$]")  # , fontsize=12)
+    ax.set_ylabel(r"V [M$\lambda$]")  # , fontsize=12)
+    ax2.set_ylabel("V [m] - East", color="#007a59")  # , fontsize=12)
+    ax3.set_xlabel(
+        "U [m] (%2.2f µm) - North" % wl_ref, color="#007a59"
+    )  # , fontsize=12)
     ax2.tick_params(axis="y", colors="#007a59")
     ax3.tick_params(axis="x", colors="#007a59")
-    ax.legend(fontsize=7)
-    plt.subplots_adjust(
-        top=0.97, bottom=0.09, left=0.11, right=0.93, hspace=0.2, wspace=0.2
-    )
+    if legend:
+        ax.legend()
+    # plt.subplots_adjust(
+    #     top=0.97, bottom=0.09, left=0.11, right=0.93, hspace=0.2, wspace=0.2
+    # )
     plt.tight_layout()
     plt.show(block=False)
-    return fig
+    # return fig
 
 
 def plot_residuals(
     data,
     param,
+    cp_max=200,
     fitOnly=None,
+    normalizeErrors=False,
     use_flag=True,
     hue=None,
     save_dir=None,
     name=None,
     verbose=True,
+    *,
+    display=True,
 ):
     """
     Plot the comparison between data vs model and the corresponding residuals
@@ -514,9 +561,12 @@ def plot_residuals(
         If set, the figure is saved in `save_dir` as *`name`*.png,\n
     """
 
+    #  sns.set_theme(color_codes=True)
+    #  sns.set_context("talk", font_scale=0.7)
+
     if name is None:
         name = ""
-    sns.set_theme(color_codes=True)
+    # sns.set_theme(color_codes=True)
     if fitOnly is None:
         print("Warning: FitOnly is None, the degree of freedom is set to 0.\n")
         fitOnly = []
@@ -531,15 +581,39 @@ def plot_residuals(
         "data": data,
         "param": param,
         "fitOnly": fitOnly,
-        "hue": hue,
         "use_flag": use_flag,
+        "display": display,
     }
-    df_cp, chi2_cp, chi2_cp_full, mod_cp = _plot_cp_residuals(**param_plot)
+
+    if hue == "wl":
+        param_plot["hue"] = "wl"
+    elif hue == "baseline":
+        param_plot["hue"] = "cpname"
+
+    df_cp, chi2_cp, chi2_cp_full, mod_cp = _plot_cp_residuals(
+        **param_plot,
+        cp_max=cp_max,
+    )
     if save_dir is not None:
-        plt.savefig(save_dir + "residuals_CP_%sfit.png" % name, dpi=300)
-    df_v2, chi2_vis2, chi2_vis2_full, mod_v2 = _plot_v2_residuals(**param_plot)
+        plt.savefig(
+            save_dir + "residuals_CP_%sfit.pdf" % name,
+            bbox_inches="tight",
+            dpi=300,
+            pad_inches=0.05,
+        )
+
+    if hue == "baseline":
+        param_plot["hue"] = "blname"
+    df_v2, chi2_vis2, chi2_vis2_full, mod_v2 = _plot_v2_residuals(
+        plot_line=False, **param_plot
+    )
     if save_dir is not None:
-        plt.savefig(save_dir + "residuals_V2_%sfit.png" % name, dpi=300)
+        plt.savefig(
+            save_dir + "residuals_V2_%sfit.pdf" % name,
+            bbox_inches="tight",
+            dpi=300,
+            pad_inches=0.05,
+        )
 
     d_freedom = len(fitOnly)
 
@@ -550,13 +624,22 @@ def plot_residuals(
     e_obs = np.zeros(nobs)
     all_mod = np.zeros(nobs)
 
+    norm_v2, norm_cp = 1, 1
+    if normalizeErrors:
+        if nv2 > ncp:
+            norm_v2 = np.sqrt(nv2 / ncp)
+            norm_cp = 1.0
+        else:
+            norm_v2 = 1
+            norm_cp = np.sqrt(ncp / nv2)
+
     for i in range(len(df_v2["vis2"])):
         obs[i] = df_v2["vis2"][i]
-        e_obs[i] = df_v2["e_vis2"][i]
+        e_obs[i] = df_v2["e_vis2"][i] * norm_v2
         all_mod[i] = df_v2["mod"][i]
     for i in range(len(df_cp["cp"])):
         obs[i + nv2] = df_cp["cp"][i]
-        e_obs[i + nv2] = df_cp["e_cp"][i]
+        e_obs[i + nv2] = df_cp["e_cp"][i] * norm_cp
         all_mod[i + nv2] = df_cp["mod"][i]
 
     chi2_global = np.sum((obs - all_mod) ** 2 / (e_obs) ** 2) / (nobs - (d_freedom - 1))
@@ -582,8 +665,11 @@ def plot_image_model(
     data=None,
     apod=False,
     corono=False,
+    patch_res=False,
     expert_plot=False,
+    cmap="viridis",
     verbose=False,
+    display=True,
 ):
     """
     Compute and plot the image for the model based on `param` dictionnary.
@@ -670,8 +756,8 @@ def plot_image_model(
     pix_vis = 2 * freq_max / npts
     freq_map = np.sqrt((x - (npts / 2.0)) ** 2 + (y - (npts / 2.0)) ** 2) * pix_vis
 
-    x = np.squeeze(np.linspace(0, 1.5 * np.sqrt(freq_max ** 2 + freq_max ** 2), npts))
-    y = np.squeeze(np.exp(-(x ** 2) / (2 * (fwhm_apod / 2.355) ** 2)))
+    x = np.squeeze(np.linspace(0, 1.5 * np.sqrt(freq_max**2 + freq_max**2), npts))
+    y = np.squeeze(np.exp(-(x**2) / (2 * (fwhm_apod / 2.355) ** 2)))
 
     # Can use hamming window to apodise the visibility
     if hamming:
@@ -729,91 +815,113 @@ def plot_image_model(
             data = [data]
         obs = np.concatenate([format_obs(x) for x in data])
 
-    plt.figure(figsize=(13, 3.5), dpi=120)
-    plt.subplots_adjust(
-        left=0.05, bottom=0.05, right=0.99, top=1, wspace=0.18, hspace=0.25
-    )
-    plt.subplot(1, 4, 1)
-    mymap = symmetrical_colormap(("gist_earth", None))
-    plt.imshow(im_amp ** 2, origin="lower", extent=extent_vis, cmap="gist_earth")
-    if obs is not None:
-        save_obs = obs.copy()
-        cond = save_obs[:, 1] == "V2"
-        obs = save_obs[cond]
-        for i in range(len(obs)):
-            u = obs[i][0][0]
-            v = obs[i][0][1]
-            wl = obs[i][0][2]
-            u_freq = rad2arcsec(u / wl)  # / (1/mas2rad(1000))
-            v_freq = rad2arcsec(v / wl)  # / (1/mas2rad(1000))
-            plt.scatter(u_freq, v_freq, s=4, marker="o", alpha=0.3, color="r")
-            plt.scatter(-u_freq, -v_freq, s=4, marker="o", alpha=0.3, color="r")
-    plt.axis([-rb, rb, -rb, rb])
-    plt.xlabel("Sp. Freq [cycles/arcsec]")
-    plt.ylabel("Sp. Freq [cycles/arcsec]")
-    plt.title("Amplitude visibility", fontsize=12, color="grey", weight="bold")
-    plt.subplot(1, 4, 2)
-    plt.imshow(im_phi, origin="lower", extent=extent_vis, cmap=mymap)
-    if obs is not None:
-        save_obs = obs.copy()
-        cond = save_obs[:, 1] == "V2"
-        obs = save_obs[cond]
-        for i in range(len(obs)):
-            u = obs[i][0][0]
-            v = obs[i][0][1]
-            wl = obs[i][0][2]
-            u_freq = rad2arcsec(u / wl)  # / (1/mas2rad(1000))
-            v_freq = rad2arcsec(v / wl)  # / (1/mas2rad(1000))
-            plt.scatter(u_freq, v_freq, s=4, marker="o", alpha=0.3, color="r")
-            plt.scatter(-u_freq, -v_freq, s=4, marker="o", alpha=0.3, color="r")
-    plt.title("Phase visibility", fontsize=12, color="grey", weight="bold")
-    plt.xlabel("Sp. Freq [cycles/arcsec]")
-    plt.ylabel("Sp. Freq [cycles/arcsec]")
-    plt.axis([-rb, rb, -rb, rb])
+    if display:
+        plt.figure(figsize=(13, 3.5), dpi=120)
+        plt.subplots_adjust(
+            left=0.05, bottom=0.05, right=0.99, top=1, wspace=0.18, hspace=0.25
+        )
+        plt.subplot(1, 4, 1)
+        mymap = symmetrical_colormap("gist_earth")
+        plt.imshow(im_amp**2, origin="lower", extent=extent_vis, cmap="gist_earth")
+        if obs is not None:
+            save_obs = obs.copy()
+            cond = save_obs[:, 1] == "V2"
+            obs = save_obs[cond]
+            for i in range(len(obs)):
+                u = obs[i][0][0]
+                v = obs[i][0][1]
+                wl = obs[i][0][2]
+                u_freq = rad2arcsec(u / wl)  # / (1/mas2rad(1000))
+                v_freq = rad2arcsec(v / wl)  # / (1/mas2rad(1000))
+                plt.scatter(u_freq, v_freq, s=4, marker="o", alpha=0.3, color="r")
+                plt.scatter(-u_freq, -v_freq, s=4, marker="o", alpha=0.3, color="r")
+        plt.axis([-rb, rb, -rb, rb])
+        plt.xlabel("Sp. Freq [cycles/arcsec]")
+        plt.ylabel("Sp. Freq [cycles/arcsec]")
+        plt.title("Amplitude visibility", fontsize=12, color="grey", weight="bold")
+        plt.subplot(1, 4, 2)
+        plt.imshow(im_phi, origin="lower", extent=extent_vis, cmap=mymap)
+        if obs is not None:
+            save_obs = obs.copy()
+            cond = save_obs[:, 1] == "V2"
+            obs = save_obs[cond]
+            for i in range(len(obs)):
+                u = obs[i][0][0]
+                v = obs[i][0][1]
+                wl = obs[i][0][2]
+                u_freq = rad2arcsec(u / wl)  # / (1/mas2rad(1000))
+                v_freq = rad2arcsec(v / wl)  # / (1/mas2rad(1000))
+                plt.scatter(u_freq, v_freq, s=4, marker="o", alpha=0.3, color="r")
+                plt.scatter(-u_freq, -v_freq, s=4, marker="o", alpha=0.3, color="r")
+        plt.title("Phase visibility", fontsize=12, color="grey", weight="bold")
+        plt.xlabel("Sp. Freq [cycles/arcsec]")
+        plt.ylabel("Sp. Freq [cycles/arcsec]")
+        plt.axis([-rb, rb, -rb, rb])
 
-    plt.subplot(1, 4, 3)
+        if patch_res:
+            px = 0.65 * rad2mas(fov / 2.0)
+            py = -0.65 * rad2mas(fov / 2.0)
+            if data is not None:
+                e1 = _compute_res_patch(data, px=px, py=py)
+        ax = plt.subplot(1, 4, 3)
 
-    plt.imshow(
-        image_orient,
-        cmap="turbo",
-        norm=PowerNorm(p),
-        interpolation=None,
-        extent=np.array(extent_ima),
-        origin="lower",
-    )
-
-    if cont:
-        plt.contour(
+        if (data is not None) & patch_res:
+            ax.add_patch(e1)
+        plt.imshow(
             image_orient,
-            levels=[0.5],
-            colors=["r"],
+            cmap=cmap,
+            norm=PowerNorm(p),
+            interpolation=None,
             extent=np.array(extent_ima),
             origin="lower",
         )
 
-    plt.xlabel(r"Relative R.A. [mas]")
-    plt.ylabel(r"Relative DEC [mas]")
-    plt.title("Model image", fontsize=12, color="grey", weight="bold")
+        if corono:
+            plt.scatter(
+                0, 0, s=100, marker="*", edgecolors="k", color="c", linewidth=0.5
+            )
 
-    plt.subplot(1, 4, 4)
-    plt.imshow(
+        if cont:
+            plt.contour(
+                image_orient,
+                levels=[0.5, 0.999],
+                colors=["r", "c"],
+                extent=np.array(extent_ima),
+                origin="lower",
+            )
+
+        plt.xlabel(r"Relative R.A. [mas]")
+        plt.ylabel(r"Relative DEC [mas]")
+        plt.title("Model image", fontsize=12, color="grey", weight="bold")
+
+        plt.subplot(1, 4, 4)
+        plt.imshow(
+            ima_conv_orient,
+            cmap="afmhot",
+            norm=PowerNorm(p),
+            interpolation=None,
+            extent=np.array(extent_ima),
+            origin="lower",
+        )
+        plt.xlabel(r"Relative R.A. [mas]")
+        plt.ylabel(r"Relative DEC [mas]")
+        plt.title(
+            "Model convolved B=%im" % base_max, fontsize=12, color="grey", weight="bold"
+        )
+        plt.subplots_adjust(
+            top=0.93, bottom=0.153, left=0.055, right=0.995, hspace=0.24, wspace=0.3
+        )
+    norm_amp = im_amp  # / np.max(im_amp)
+    return (
+        image_orient,
         ima_conv_orient,
-        cmap="afmhot",
-        norm=PowerNorm(p),
-        interpolation=None,
-        extent=np.array(extent_ima),
-        origin="lower",
+        xScales,
+        uv_scale,
+        norm_amp,
+        pixel_size,
+        extent_vis,
+        extent_ima,
     )
-    plt.xlabel(r"Relative R.A. [mas]")
-    plt.ylabel(r"Relative DEC [mas]")
-    plt.title(
-        "Model convolved B=%im" % base_max, fontsize=12, color="grey", weight="bold"
-    )
-    plt.subplots_adjust(
-        top=0.93, bottom=0.153, left=0.055, right=0.995, hspace=0.24, wspace=0.3
-    )
-    norm_amp = im_amp / np.max(im_amp)
-    return image_orient, ima_conv_orient, xScales, uv_scale, norm_amp, pixel_size
 
 
 def plot_complex_model(
@@ -877,7 +985,7 @@ def plot_complex_model(
     modelname = grid.name
 
     fig, axs = plt.subplots(1, 3, figsize=(14, 5))
-    axs[0].set_title(fr'Model "{modelname}" ($\lambda$ = {wl_model * 1e6:2.2f} $\mu$m)')
+    axs[0].set_title(rf'Model "{modelname}" ($\lambda$ = {wl_model * 1e6:2.2f} $\mu$m)')
     axs[0].imshow(
         im_model, norm=PowerNorm(p), origin="lower", extent=extent_im, cmap="afmhot"
     )
@@ -886,7 +994,7 @@ def plot_complex_model(
 
     axs[1].set_title(r"Squared visibilities (V$^2$)")
     axs[1].imshow(
-        im_amp ** 2,
+        im_amp**2,
         norm=PowerNorm(1),
         origin="lower",
         extent=extent_vis,
@@ -1023,6 +1131,7 @@ def plot_dvis(
     norm_phi=True,
     norm_vis=True,
     lbdBrg=2.1661,
+    ft=None,
 ):
     """
     Plot differential observables (visibility amplitude and phase).
@@ -1128,8 +1237,13 @@ def plot_dvis(
         #     np.abs(wl[cond_wl] - lbdBrg) > 0.002
         # )
 
-        nan_interp(data_dvis)
-        cont_value = data_dvis[inCont].mean()
+        # nan_interp(data_dvis)
+
+        if ft is not None:
+            cont_value = ft.vis2[i][2] ** 0.5
+        else:
+            cont_value = data_dvis[inCont].mean()
+        save_cont_dvis = data_dvis[inCont].mean()
         if not np.isnan(dvis_m):
             X = wl[cond_wl]
             Y = data_dvis.copy()
@@ -1137,7 +1251,21 @@ def plot_dvis(
             if norm_vis:
                 normalize_continuum(Y, X, inCont)
                 Y *= cont_value
-            plt.step(X, Y, color=dic_color[blname[i]], **linestyle)
+            plt.plot(X, Y, color=dic_color[blname[i]], **linestyle)
+            plt.axhspan(
+                cont_value - np.std(Y[inCont]),
+                cont_value + np.std(Y[inCont]),
+                alpha=0.3,
+                color="gray",
+                label=r"$\sigma$=%2.3f" % np.std(Y[inCont]),
+            )
+            plt.axhline(
+                cont_value,
+                color="k",
+                lw=1,
+                label=f"cont(SC)={cont_value:2.2f}({save_cont_dvis:2.2f})",
+            )
+            plt.legend(loc=4, fontsize=5, ncol=2)
             plt.text(
                 0.16,
                 0.8,
@@ -1151,7 +1279,7 @@ def plot_dvis(
             if line is not None:
                 plot_vline(line)
 
-            plt.ylim(dvis_m - dvis_range, dvis_m + dvis_range)
+            plt.ylim(cont_value - dvis_range, cont_value + dvis_range)
             ax.tick_params(axis="both", which="major", labelsize=8)
             hide_xlabel()
             plt.xlim(bounds2)
@@ -1192,7 +1320,16 @@ def plot_dvis(
             # inCont = (np.abs(X - lbdBrg) < 0.1) * (np.abs(X - lbdBrg) > 0.002)
             if norm_phi:
                 normalize_continuum(Y, X, inCont, phase=True)
-            plt.step(X, Y, color=dic_color[blname[i]], **linestyle)
+            plt.plot(X, Y, color=dic_color[blname[i]], **linestyle)
+            plt.axhline(0, color="k", lw=1)
+            plt.axhspan(
+                -np.std(Y[inCont]),
+                np.std(Y[inCont]),
+                alpha=0.3,
+                color="gray",
+                label=r"$\sigma$=%2.1f deg" % np.std(Y[inCont]),
+            )
+            plt.legend(loc=1, fontsize=6)
             dphi_m = Y.mean()
 
             plt.text(
@@ -1249,15 +1386,15 @@ def plot_dvis(
             )
             plt.xlim(bounds2)
 
-    plt.tight_layout()
-    plt.subplots_adjust(hspace=0.15, bottom=0.05, top=0.99)
+    # plt.tight_layout()
+    plt.subplots_adjust(hspace=0.15, bottom=0.06, top=0.99)
     return fig
 
 
 # Plot MCMC related results
 
 
-def plot_mcmc_walker(sampler, param, fitOnly, burnin=100, savedir=None):
+def plot_mcmc_walker(sampler, param, fitOnly, burnin=100, savedir=None, name=""):
     """Plot walkers for the different iteration. `burnin` is the number of
     points to be ignored (first iterations). `fitOnly` is the list of fitted
     parameters. `param` is the dictionnary containing the initial parameters of
@@ -1296,7 +1433,9 @@ def plot_mcmc_walker(sampler, param, fitOnly, burnin=100, savedir=None):
     axes[-1].set_xlabel("N iteration")
     plt.subplots_adjust(top=0.98, bottom=0.08, left=0.17, right=0.982)
     if savedir is not None:
-        plt.savefig(savedir + "walkers_%s_MCMC.png" % (param["model"]), dpi=300)
+        plt.savefig(
+            savedir + "walkers_{}_{}MCMC.png".format(param["model"], name), dpi=300
+        )
     return fig
 
 
@@ -1331,9 +1470,10 @@ def plot_mcmc_results(
         if lk is None:
             lk = flat_samples[:-1, np.where(np.array(labels) == "l$_k$")[0][0]]
         la = flat_samples[:-1, np.where(np.array(labels) == "l$_a$")[0][0]]
-        ar = 10 ** la / (np.sqrt(1 + 10 ** (2 * lk)))
-        ak = ar * (10 ** lk)
-        a = (ar ** 2 + ak ** 2) ** 0.5
+        ar = 10**la / (np.sqrt(1 + 10 ** (2 * lk)))
+        ak = ar * (10**lk)
+        a = (ar**2 + ak**2) ** 0.5
+        print(a, ar, ak)
         dict_mcmc["a"] = a
         w = ak / a
         if compute_w:
@@ -1342,7 +1482,8 @@ def plot_mcmc_results(
         pass
 
     try:
-        del dict_mcmc["l$_k$"]
+        if compute_w:
+            del dict_mcmc["l$_k$"]
     except KeyError:
         pass
 
@@ -1372,15 +1513,48 @@ def plot_mcmc_results(
 # Plot differential quantities results (photocenter shift, offset and pure line)
 
 
-def plot_pcs(pcs, speed=True, r=None, dpc=None, xlim=50):
+def plot_pcs(
+    pcs,
+    modelfile=None,
+    iwl=None,
+    speed=True,
+    r=None,
+    dpc=None,
+    xlim=50,
+    factor=1,
+    p=1,
+    lim_chi2=3,
+    cmap="gist_stern",
+    figdir=None,
+    azim=None,
+    tilt=None,
+    save=False,
+    radius=None,
+    vel_map=True,
+    phase=None,
+    ampli=1,
+):
     """Plot the photocenter shift (oriented East-North)."""
+
+    if modelfile is not None:
+        hdu = fits.open(modelfile)
+        cube = hdu[0].data
+        image = cube[0]
+        hdr = hdu[0].header
+        npix = image.shape[0]
+        hdu.close()
+        pix = rad2mas(np.deg2rad(hdr["CDELT1"])) * 1000.0
+        extent = (np.array([npix, 0, 0, npix]) - npix / 2) * pix
+        n_wl = cube.shape[0]
+        delta_wl = hdr["CDELT3"]
+        wl0 = hdr["CRVAL3"]
+        wl_model = np.linspace(wl0, wl0 + delta_wl * (n_wl - 1), n_wl)
 
     wave = pcs["wl"]
     if speed:
-        rest = pcs["wl_line"]
-        wave = ((pcs["wl"] - rest) / rest) * c_light / 1e3
-
-    factor = 1
+        rest = pcs["restframe"]
+        wave2 = ((pcs["wl"] - rest) / rest) * c_light / 1e3
+    print(pcs["wl"])
     if dpc is not None:
         factor = dpc / 1e3
 
@@ -1388,58 +1562,603 @@ def plot_pcs(pcs, speed=True, r=None, dpc=None, xlim=50):
         x = r * np.cos(np.linspace(0, 2 * np.pi, 100))
         y = r * np.sin(np.linspace(0, 2 * np.pi, 100))
 
-    sns.set_theme(color_codes=True)
+    chi2_pcs = np.array([x["chi2"] for x in pcs["fit_param"]])
+
+    cond_sel = chi2_pcs > 0
+
+    e_pcs_east = unumpy.std_devs(pcs["east"]) * factor
+    cond_sel_abs = e_pcs_east < 1e2
+
+    pcs_east = unumpy.nominal_values(pcs["east"])[cond_sel & cond_sel_abs] * factor
+    pcs_north = unumpy.nominal_values(pcs["north"])[cond_sel & cond_sel_abs] * factor
+    e_pcs_east = unumpy.std_devs(pcs["east"])[cond_sel & cond_sel_abs] * factor
+    e_pcs_north = unumpy.std_devs(pcs["north"])[cond_sel & cond_sel_abs] * factor
+
+    wave = wave[cond_sel & cond_sel_abs]
+    if speed:
+        wave2 = wave2[cond_sel & cond_sel_abs]
+
+    sns.set_context("talk", font_scale=0.9)
+    tmp_range = [iwl]
+    if False:
+        tmp_range = range(len(wave))
+
+    for iwl in tmp_range:
+        plt.figure(figsize=(6, 5))
+        ax = plt.gca()
+        if modelfile is not None:
+            if iwl is None:
+                tmp = []
+
+                range_wave = pcs["wl"]
+                if vel_map:
+                    inLine = np.abs(wl_model - rest) < 1 * 0.0005
+                    vel_channels = ((wl_model - rest) / rest) * c_light / 1e3
+                    range_wave = wl_model[inLine]
+
+                for tmp_wl in range_wave:
+                    idx = find_nearest(wl_model, tmp_wl)
+                    tmp.append(np.fliplr(cube[idx]))
+
+                if vel_map:
+                    alma_map = np.array(tmp) * vel_channels[inLine, None, None]
+                    divider_map = np.sum(tmp, axis=0)
+                    divider_map[divider_map == 0] = np.nan
+                    image = np.sum(alma_map, axis=0) / divider_map
+                else:
+                    image = np.sum(tmp, axis=0)
+                norm = None
+                vmin = None  # -np.max([abs(wave2.min()), wave2.max()])
+                vmax = None  # -vmin
+            else:
+                print(wave[iwl])
+                idx = find_nearest(wl_model, wave[iwl])
+                image = np.flipud(np.fliplr(cube[idx]))
+                i_east = pcs_east[iwl]
+                i_north = pcs_north[iwl]
+                plt.text(
+                    -50,
+                    400,
+                    r"$\lambda$=%2.4f µm" % wave[iwl],
+                    va="center",
+                    ha="left",
+                    color="w",
+                )
+                plt.plot(i_east, i_north, "g+", zorder=12)
+                norm = PowerNorm(p)
+                vmin = None
+                vmax = None
+
+            if vel_map:
+                cmap = "coolwarm"
+                current_cmap = matplotlib.colormaps[cmap]
+                current_cmap.set_bad(color="w")
+            else:
+                current_cmap = matplotlib.colormaps["gist_stern"]
+
+            # from scipy.ndimage import center_of_mass as cm
+
+            image2 = image.copy()
+            ax.imshow(
+                image,
+                extent=extent,
+                origin="lower",
+                norm=norm,
+                cmap=current_cmap,
+                alpha=1,
+                vmin=vmin,
+                vmax=vmax,
+            )
+            ax.grid(alpha=0)
+
+            npix = image2.shape[0]
+            pix = 2 * abs(extent[0]) / npix
+
+            # c_mass = np.array(cm(image))
+            # c_mass2 = -1 * ((c_mass) - npix / 2.0) * pix
+            # ax.plot(c_mass2[1], c_mass2[0], "wo", alpha=0.2)
+
+        input_wave = wave
+        if speed:
+            input_wave = wave2
+
+        pcs_east *= ampli
+        pcs_north *= ampli
+        e_pcs_east *= ampli
+        e_pcs_north *= ampli
+        sc = ax.scatter(
+            pcs_east,
+            pcs_north,
+            c=input_wave,
+            s=80,
+            cmap="coolwarm",
+            edgecolor="k",
+            zorder=10,
+            # linewidth=1,
+        )
+        ax.plot(pcs_east, pcs_north, ls="--", color="k", lw=1)
+        ax.errorbar(
+            pcs_east,
+            pcs_north,
+            xerr=e_pcs_east,
+            yerr=e_pcs_north,
+            color="k",
+            ls="None",
+            elinewidth=1,
+            capsize=1,
+        )
+
+        if r is not None:
+            ax.plot(x, y, "g--", lw=1)
+        clabel = "Velocity [km/s]"
+        if not speed:
+            clabel = "Wavelength [µm]"
+        cbar_kws = {
+            "label": clabel,
+        }
+
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="3%", pad=0.05)
+        cbar = plt.colorbar(sc, **cbar_kws, cax=cax)
+        cbar.ax.tick_params(size=0)
+
+        ax.set_xlim(xlim, -xlim)
+        ax.set_ylim(-xlim, xlim)
+        if dpc is not None:
+            ax.set_xlabel("Photocenter shift [AU]")
+            ax.set_ylabel("Photocenter shift [AU]")
+        else:
+            ax.set_xlabel("Photocenter shift [µas]")
+            ax.set_ylabel("Photocenter shift [µas]")
+        if vel_map:
+            pass
+            # ax.axvline(0, ls="-", color="gray", lw=1, alpha=0.3)
+            # ax.axhline(0, ls="-", color="gray", lw=1, alpha=0.3)
+
+        if modelfile is None:
+            rs_mas = 0.09975229076556673 * 1e3
+            x_star = rs_mas * np.cos(np.linspace(0, 2 * np.pi, 100))
+            y_star = rs_mas * np.sin(np.linspace(0, 2 * np.pi, 100))
+            ax.plot(x_star, y_star)
+            ax.text(
+                0,
+                0.94 * rs_mas,
+                s="Star",
+                color="tab:blue",
+                va="top",
+                ha="center",
+            )
+            if phase is not None:
+                ax.text(
+                    110,
+                    100,
+                    s=r"$\phi$=%2.2f" % phase,
+                    color="k",
+                    va="center",
+                    ha="left",
+                )
+        else:
+            if phase is not None:
+                ax.text(
+                    410,
+                    400,
+                    s=r"$\phi$=%2.2f" % phase,
+                    color="w",
+                    va="center",
+                    ha="left",
+                )
+        ax.set_aspect(aspect=1)
+
+        reverse = True
+        if reverse:
+            pass
+
+        plt.tight_layout(pad=1.02)
+        import os
+
+        if save:
+            tmp_dir = figdir + "tilt=%i/overline_azim=%i/" % (tilt, azim)
+            if not os.path.exists(tmp_dir):
+                os.mkdir(tmp_dir)
+            plt.savefig(tmp_dir + "pcs_iwl=%i_azim=%i.png" % (iwl, azim), dpi=300)
+
+    # return fig, ax, image
+
+
+def plot_pcs_line(
+    pcs,
+    modelfile=None,
+    iwl=None,
+    speed=True,
+    dpc=None,
+    xlim=50,
+    factor=1,
+    p=1,
+    lim_chi2=3,
+    cmap="gist_stern",
+    figdir=None,
+    azim=None,
+    tilt=None,
+    save=False,
+    radius=None,
+    vel_map=True,
+):
+    """Plot the photocenter shift (oriented East-North)."""
+
+    if modelfile is not None:
+        hdu = fits.open(modelfile)
+        cube = hdu[0].data
+        image = cube[0]
+        hdr = hdu[0].header
+        npix = image.shape[0]
+        hdu.close()
+        pix = rad2mas(np.deg2rad(hdr["CDELT1"])) * 1000.0
+        extent = (np.array([npix, 0, 0, npix]) - npix / 2) * pix
+        n_wl = cube.shape[0]
+        delta_wl = hdr["CDELT3"]
+        wl0 = hdr["CRVAL3"]
+        wl_model = np.linspace(wl0, wl0 + delta_wl * (n_wl - 1), n_wl)
+
+    wave = pcs["wl"]
+    if speed:
+        rest = pcs["restframe"]
+        wave2 = ((pcs["wl"] - rest) / rest) * c_light / 1e3
+
+    if dpc is not None:
+        factor = dpc / 1e3
+
+    chi2_pcs = np.array([x["chi2"] for x in pcs["fit_param"]])
+
+    cond_sel = chi2_pcs < lim_chi2
+
+    pcs_east = unumpy.nominal_values(pcs["east"])[cond_sel] * factor
+    pcs_north = unumpy.nominal_values(pcs["north"])[cond_sel] * factor
+    e_pcs_east = unumpy.std_devs(pcs["east"])[cond_sel] * factor
+    e_pcs_north = unumpy.std_devs(pcs["north"])[cond_sel] * factor
+    wave = wave[cond_sel]
+    if speed:
+        wave2 = wave2[cond_sel]
+
+    sns.set_context("talk", font_scale=0.9)
+    for iwl in range(len(wave)):
+        fig = plt.figure(figsize=(7, 5.8))
+        ax = plt.gca()
+        if modelfile is not None:
+            idx = find_nearest(wl_model, wave[iwl])
+            image = np.fliplr(cube[idx])
+            i_east = pcs_east[iwl]
+            i_north = pcs_north[iwl]
+            print(i_east, i_north)
+            plt.plot(i_east, i_north, "g+", zorder=12)
+            offset = (i_east**2 + i_north**2) ** 0.5
+            norm = PowerNorm(p)
+            vmin = None
+            vmax = None
+
+            cb = ax.imshow(
+                image,
+                extent=extent,
+                origin="lower",
+                norm=norm,
+                cmap=cmap,
+                alpha=1,
+                vmin=vmin,
+                vmax=vmax,
+            )
+
+            ax.grid(alpha=0)
+
+        input_wave = wave
+        if speed:
+            input_wave = wave2
+
+        ax.scatter(
+            pcs_east,
+            pcs_north,
+            c=input_wave,
+            cmap="coolwarm",
+            edgecolor="k",
+            zorder=3,
+            linewidth=1,
+        )
+        ax.plot(pcs_east, pcs_north, ls="--", color="w", lw=1)
+        ax.errorbar(
+            pcs_east,
+            pcs_north,
+            xerr=e_pcs_east,
+            yerr=e_pcs_north,
+            color="k",
+            ls="None",
+            elinewidth=1,
+            capsize=1,
+        )
+
+        clabel = "Velocity [km/s]"
+        if not speed:
+            clabel = "Wavelength [µm]"
+        cbar_kws = {
+            "label": clabel,
+        }
+
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="3%", pad=0.05)
+        cbar = plt.colorbar(cb, **cbar_kws, cax=cax)
+        cbar.ax.tick_params(size=0)
+
+        ax.set_xlim(-xlim, xlim)
+        ax.set_ylim(-xlim, xlim)
+        if dpc is not None:
+            ax.set_xlabel("Photocenter shift [AU]")
+            ax.set_ylabel("Photocenter shift [AU]")
+        else:
+            ax.set_xlabel("Photocenter shift [µas]")
+            ax.set_ylabel("Photocenter shift [µas]")
+        if vel_map:
+            ax.axvline(0, ls="-", color="gray", lw=1, alpha=0.3)
+            ax.axhline(0, ls="-", color="gray", lw=1, alpha=0.3)
+        ax.set_aspect("equal", adjustable="box")
+
+        if save:
+            if speed:
+                text_plot = "λ = %2.2f km/s (offset = %i µas)" % (
+                    input_wave[iwl],
+                    offset,
+                )
+            else:
+                text_plot = "λ = %2.2f µm (offset = %i µas)" % (input_wave[iwl], offset)
+            color = "#fae39e"
+        else:
+            text_plot = "azim = %i deg, r = %2.2f R*" % (azim, radius * 0.140 / 0.0093)
+            color = "#70bd7d"
+
+        ax.text(
+            0.05,
+            0.95,
+            text_plot,
+            transform=ax.transAxes,
+            verticalalignment="top",
+            color=color,
+            alpha=0.7,
+        )
+
+        reverse = True
+        ff = 1
+        if reverse:
+            ff = -1
+        ax.set_xlim(ff * extent[0], ff * extent[1])
+        ax.set_ylim(extent[2], extent[3])
+        plt.tight_layout()
+        import os
+
+        if save:
+            tmp_dir = figdir + "tilt=%i/overline_azim=%i/" % (tilt, azim)
+            if not os.path.exists(tmp_dir):
+                os.mkdir(tmp_dir)
+            plt.savefig(tmp_dir + "pcs_iwl=%i_azim=%i.png" % (iwl, azim), dpi=300)
+
+    return fig, ax, image
+
+
+def plot_size_compa_model(
+    pcs,
+    tab_fitted_image,
+    rstar=0.0093,
+    modelfile=None,
+    dpc=None,
+    p=1,
+    cmap="gist_stern",
+    fig=None,
+    limit_flc=None,
+):
+    """Plot a comparison between model and fitted sizes."""
+
+    # Open the model
+    if modelfile is not None:
+        hdu = fits.open(modelfile)
+        cube = hdu[0].data
+        image = cube[0]
+        hdr = hdu[0].header
+        npix = image.shape[0]
+        hdu.close()
+        pix = rad2mas(np.deg2rad(hdr["CDELT1"])) * 1000.0
+        extent = (np.array([npix, 0, 0, npix]) - npix / 2) * pix
+        n_wl = cube.shape[0]
+        delta_wl = hdr["CDELT3"]
+        wl0 = hdr["CRVAL3"]
+        wl_model = np.linspace(wl0, wl0 + delta_wl * (n_wl - 1), n_wl)
+
+    factor = 1
+    if dpc is not None:
+        factor = dpc / 1e3
+    extent = extent * factor
+
+    azim = tab_fitted_image["azim"]
+
+    # Fitted models
+    tab_fitted_image["ud"]
+    image_eud = tab_fitted_image["eud"]
+    tab_fitted_image["gd"]
+    image_egd = tab_fitted_image["egd"]
+
+    r_ud = tab_fitted_image["r_eud"] * dpc / rstar
+    r_gd = tab_fitted_image["r_egd"] * dpc / rstar
+
+    wave = pcs["wl"]
+
+    flux = np.array([x.sum() for x in cube])
+    flux /= flux[0]
+
+    tmp = []
+    cond_inLine = (wl_model >= wave[0]) & (wl_model <= wave[-1])
+    to_int_wl = wl_model[cond_inLine]
+    flux_norm = flux[cond_inLine] - 1
+    for iwl in range(len(to_int_wl)):
+        idx = find_nearest(wl_model, to_int_wl[iwl])
+        tmp.append(np.fliplr(cube[idx]))
+
+    tmp = np.array(tmp)
+
+    if limit_flc is None:
+        cond_pos = flux_norm > limit_flc
+        image = np.sum(tmp[cond_pos], axis=0)
+    else:
+        image = np.sum(tmp, axis=0)
+    image /= image.max()
+
+    image2 = image.copy()
+
+    cond_mag = image < 0.1
+    image2[~cond_mag] = image2[~cond_mag] / np.max(image2[~cond_mag])
+    image2[cond_mag] = image2[cond_mag] / np.max(image2[cond_mag])
+
+    plt.figure()
+    plt.imshow(cond_mag)
+
+    # image2 /= image2.max()
+
+    norm = PowerNorm(p)
+    # sns.set_theme(color_codes=True)
     sns.set_context("talk", font_scale=0.9)
 
-    fig = plt.figure(figsize=(6, 4.8))
+    if fig is None:
+        fig = plt.figure(figsize=(7, 5.8))
     ax = plt.gca()
-    sc = ax.scatter(
-        unumpy.nominal_values(pcs["east"]) * factor,
-        unumpy.nominal_values(pcs["north"]) * factor,
-        c=wave,
-        cmap="coolwarm",
-        edgecolor="k",
-        zorder=3,
-        linewidth=1,
+    cb = ax.imshow(
+        image2,
+        extent=extent,
+        origin="lower",
+        norm=norm,
+        cmap=cmap,
+        alpha=1,
     )
-    ax.errorbar(
-        unumpy.nominal_values(pcs["east"]) * factor,
-        unumpy.nominal_values(pcs["north"]) * factor,
-        xerr=unumpy.std_devs(pcs["east"]) * factor,
-        yerr=unumpy.std_devs(pcs["north"]) * factor,
-        color="k",
-        ls="None",
-        elinewidth=1,
-        capsize=1,
-    )
-
-    if r is not None:
-        ax.plot(x, y, "g--", lw=1)
-    clabel = "Wavelength [km/s]"
-    if not speed:
-        clabel = "Wavelength [µm]"
+    ax.grid(alpha=0)
+    clabel = "Rel. Flux"
     cbar_kws = {
         "label": clabel,
     }
 
     divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right", size="5%", pad=0.05)
-    cbar = plt.colorbar(sc, **cbar_kws, cax=cax)
+    cax = divider.append_axes("right", size="3%", pad=0.05)
+    cbar = plt.colorbar(cb, **cbar_kws, cax=cax)
+
     cbar.ax.tick_params(size=0)
 
-    ax.set_xlim(xlim, -xlim)
-    ax.set_ylim(-xlim, xlim)
-    if dpc is not None:
-        ax.set_xlabel("Photocenter shift [AU]")
-        ax.set_ylabel("Photocenter shift [AU]")
-    else:
-        ax.set_xlabel("Photocenter shift [µas]")
-        ax.set_ylabel("Photocenter shift [µas]")
-    ax.axvline(0, ls="-", color="gray", lw=1)
-    ax.axhline(0, ls="-", color="gray", lw=1)
+    # if dpc is not None:
+    #     ax.set_xlabel("Photocenter shift [AU]")
+    #     ax.set_ylabel("Photocenter shift [AU]")
+    # else:
+    #     ax.set_xlabel("Photocenter shift [µas]")
+    #     ax.set_ylabel("Photocenter shift [µas]")
     ax.set_aspect("equal", adjustable="box")
+
+    if azim + 90 > 360:
+        tt = (azim + 90) - 360
+
+    else:
+        tt = azim + 90
+    phase = (tt) / 360.0
+
+    ax.text(
+        0.05,
+        0.95,
+        "phase = %2.2f" % phase,
+        transform=ax.transAxes,
+        verticalalignment="top",
+        color="w",
+        alpha=1,
+        fontsize=22,
+    )
+
+    color_gd = "y"
+    color_ud = "#75d04e"
+    ax.text(
+        0.67,
+        0.95,
+        r"r$_{ud}$ = %2.2f R$_\ast$" % (r_ud),
+        transform=ax.transAxes,
+        verticalalignment="top",
+        color=color_ud,
+        alpha=1.0,
+        fontsize=18,
+    )
+    ax.text(
+        0.67,
+        0.88,
+        r"r$_{gd}$ = %2.2f R$_\ast$" % (r_gd),
+        transform=ax.transAxes,
+        verticalalignment="top",
+        color=color_gd,
+        alpha=1.0,
+        fontsize=18,
+    )
+
+    # ax.contour(
+    #     image_ud,
+    #     levels=[0.1],
+    #     colors=color_gd,
+    #     origin="lower",
+    #     extent=extent,
+    #     alpha=0.5,
+    #     linewidths=[2],
+    #     linestyles=["--"],
+    # )
+    # ax.contour(
+    #     image_gd,
+    #     levels=[0.5],
+    #     colors=color_gd,
+    #     origin="lower",
+    #     extent=extent,
+    #     alpha=0.5,
+    #     linewidths=[2],
+    #     linestyles=["--"],
+    # )
+    ax.contour(
+        image_eud,
+        levels=[0.5],
+        colors=color_ud,
+        linestyles=["-"],
+        origin="lower",
+        extent=extent,
+        linewidths=[3],
+    )
+    ax.contour(
+        image_egd,
+        levels=[0.5],
+        colors=color_gd,
+        linestyles=["-"],
+        origin="lower",
+        extent=extent,
+        linewidths=[3],
+    )
+
+    xref = -0.04
+    yref = -0.043
+    scale = 0.01
+    ax.plot([xref, xref + scale], [yref, yref], "w-", lw=2, alpha=1)
+    ax.text(
+        xref + scale / 2,
+        yref + 0.004,
+        "%2.2f AU" % scale,
+        color="w",
+        ha="center",
+        va="center",
+        alpha=1,
+    )
+    # ax.axes.xaxis.set_ticklabels([])
+    # ax.axes.yaxis.set_ticklabels([])
+
+    plt.setp(ax.get_xticklabels(), visible=False)
+    plt.setp(ax.get_yticklabels(), visible=False)
+    ax.tick_params(axis="both", which="both", length=0)
+
+    reverse = True
+    ff = 1
+    if reverse:
+        ff = -1
+    ax.set_xlim(ff * extent[0], ff * extent[1])
+    ax.set_ylim(extent[2], extent[3])
     plt.tight_layout()
-    return fig
+    return fig, ax, image
 
 
 def plot_pco(output_pco, pcs, iwl_pc=0, pc_max=0.2):
@@ -1447,13 +2166,16 @@ def plot_pco(output_pco, pcs, iwl_pc=0, pc_max=0.2):
     (`pcs`) for the spectral channel `iwl_pc`."""
     pco = output_pco["pco"]
     bl_pa = output_pco["bl_pa"]
-    bl_length = output_pco["bl_length"]
+    # bl_length = output_pco["bl_length"]
     wl = output_pco["wl"]
     nbl = output_pco["nbl"]
     l_blname = output_pco["blname"]
 
+    dic_color = _update_color_bl([output_pco["d"]])
+
     x_pc_mod = np.linspace(0, 360, 100)
     y_pc_mod = model_pcshift(x_pc_mod, pcs["fit_param"][iwl_pc]["best"])
+    chi2 = pcs["fit_param"][iwl_pc]["chi2"]
 
     param = pcs["fit_param"][iwl_pc]["best"]
     uncer = pcs["fit_param"][iwl_pc]["uncer"]
@@ -1470,8 +2192,8 @@ def plot_pco(output_pco, pcs, iwl_pc=0, pc_max=0.2):
     for i in range(nbl):
         blname = l_blname[i]
         color_bl = dic_color[blname]
-        bl = bl_length[i]
-        label = f"{blname} ({bl:2.2f} m)"
+        # bl = bl_length[i]
+        label = None  # f"{blname} ({bl:2.2f} m)"
         plt.errorbar(
             bl_pa[i],
             pco[i, iwl_pc].nominal_value,
@@ -1504,26 +2226,27 @@ def plot_pco(output_pco, pcs, iwl_pc=0, pc_max=0.2):
         verticalalignment="top",
         bbox=props,
     )
-    plt.plot(x_pc_mod, y_pc_mod, lw=1, label="Projected shift")
+    plt.plot(x_pc_mod, y_pc_mod, lw=1, label="Projected shift (chi2=%2.2f)" % chi2)
     plt.fill_between(x_pc_mod, y_pc_mod1, y_pc_mod2, alpha=0.5)
     plt.legend(fontsize=8, loc=1)
     plt.axhline(0, lw=1, color="gray")
     plt.ylabel("Photocenter offset [mas]")
     plt.xlabel("Baseline PA [deg]")
+    pc_max = y_pc_mod.max() + 0.5
     plt.ylim(-pc_max, pc_max)
     plt.xlim(0, 360)
     plt.tight_layout()
     return fig
 
 
-def plot_cvis_pure(pure, flc, phi_max=5, vis_range=None):
+def plot_cvis_pure(pure, flc, phi_max=5, vis_range=None, rr=10):
     """Plot pure line visibility and phase with the spectrum."""
     if vis_range is None:
         vis_range = [0, 1.1]
     wl = flc["wl"]
     flux = flc["flux"]
     e_flux = flc["e_flux"]
-    inLine = flc["inLine"]
+    inLine = pure.inLine
 
     fit = flc["fit"]
     try:
@@ -1533,12 +2256,15 @@ def plot_cvis_pure(pure, flc, phi_max=5, vis_range=None):
         line_fitted = fit["best"]["p1"]
         w_fitted = 2.355 * fit["best"]["w1"] / 2.0
 
-    wl_model = np.linspace(2.15, 2.18, 1000)
+    wl_model = np.linspace(wl[0], wl[-1], 1000)
     red_abs = flc["red_abs"]
     if not red_abs:
         flux_model = model_flux(wl_model, fit["best"]) + 1
     else:
         flux_model = model_flux_red_abs(wl_model, fit["best"]) + 1
+
+    pure["param_dvis"]
+
     sns.set_theme(color_codes=True)
     sns.set_context("talk", font_scale=0.9)
     plt.figure(figsize=(6, 8))
@@ -1569,18 +2295,22 @@ def plot_cvis_pure(pure, flc, phi_max=5, vis_range=None):
     )
     plt.ylabel("Norm. flux")
 
-    plt.xlim(2.1661 - 0.01, 2.1661 + 0.01)
+    plt.xlim(line_fitted - rr * w_fitted, line_fitted + rr * w_fitted)
 
     ax2 = plt.subplot(312, sharex=ax)
-    plt.axvline(line_fitted, color="#b0bec4", lw=2, ls="--")
+    plt.axvline(line_fitted, color="#b0bec4", lw=2, ls="--", zorder=-1)
     plt.axvspan(
-        line_fitted - w_fitted, line_fitted + w_fitted, color="#b0bec4", alpha=0.3
+        line_fitted - w_fitted,
+        line_fitted + w_fitted,
+        color="#b0bec4",
+        alpha=0.3,
+        zorder=-1,
     )
     plt.errorbar(wl, pure.dvis, yerr=pure.e_dvis, **err_pts_style)
     plt.scatter(
-        wl[inLine],
+        pure.wl_line,
         pure.dvis_pure,
-        c=wl[inLine],
+        c=pure.wl_line,
         cmap="coolwarm",
         edgecolor="k",
         zorder=3,
@@ -1588,7 +2318,7 @@ def plot_cvis_pure(pure, flc, phi_max=5, vis_range=None):
         linewidth=1,
     )
     plt.errorbar(
-        wl[inLine],
+        pure.wl_line,
         pure.dvis_pure,
         yerr=pure.e_dvis_pure,
         color="k",
@@ -1596,14 +2326,19 @@ def plot_cvis_pure(pure, flc, phi_max=5, vis_range=None):
         elinewidth=1,
         capsize=1,
     )
-    plt.plot(wl, pure.mod_dvis, lw=1)
-    plt.fill_between(
-        wl,
-        pure.mod_dvis - pure.e_mod_dvis,
-        pure.mod_dvis + pure.e_mod_dvis,
-        color="orange",
-        alpha=0.3,
-    )
+
+    try:
+        plt.plot(wl, pure.mod_dvis, lw=1)
+        plt.fill_between(
+            wl,
+            pure.mod_dvis - pure.e_mod_dvis,
+            pure.mod_dvis + pure.e_mod_dvis,
+            color="orange",
+            alpha=0.3,
+        )
+    except ValueError:
+        pass
+
     props = dict(boxstyle="round", facecolor="wheat", alpha=0.5)
     plt.text(
         0.05,
@@ -1617,15 +2352,19 @@ def plot_cvis_pure(pure, flc, phi_max=5, vis_range=None):
     plt.ylabel("Vis. Amp.")
     plt.ylim(vis_range[0], vis_range[1])
     plt.subplot(313, sharex=ax)
-    plt.axvline(line_fitted, color="#b0bec4", lw=2, ls="--")
+    plt.axvline(line_fitted, color="#b0bec4", lw=2, ls="--", zorder=-1)
     plt.axvspan(
-        line_fitted - w_fitted, line_fitted + w_fitted, color="#b0bec4", alpha=0.3
+        line_fitted - w_fitted,
+        line_fitted + w_fitted,
+        color="#b0bec4",
+        alpha=0.3,
+        zorder=-1,
     )
     plt.errorbar(wl, pure.dphi, yerr=pure.e_dphi, **err_pts_style)
     plt.scatter(
-        wl[inLine],
+        pure.wl_line,
         pure.dphi_pure,
-        c=wl[inLine],
+        c=pure.wl_line,
         cmap="coolwarm",
         edgecolor="k",
         zorder=3,
@@ -1633,7 +2372,7 @@ def plot_cvis_pure(pure, flc, phi_max=5, vis_range=None):
         linewidth=1,
     )
     plt.errorbar(
-        wl[inLine],
+        pure.wl_line,
         pure.dphi_pure,
         yerr=pure.e_dphi_pure,
         color="k",
@@ -1665,10 +2404,10 @@ def _update_color_bl(tab):
     array_name = data.info["Array"]
     nbl_master = len(set(data.blname))
 
-    if array_name == "CHARA":
+    if (array_name == "CHARA") or (array_name == "g7"):
         unknown_color = plt.cm.turbo(np.linspace(0, 1, nbl_master))
     else:
-        unknown_color = plt.cm.Set2(np.linspace(0, 1, 8))
+        unknown_color = plt.cm.Set2(np.linspace(0, 1, 21))
 
     i_cycle = 0
     for j in range(len(tab)):
@@ -1721,7 +2460,7 @@ def plot_tellu(label=None, plot_ind=False, val=5000, lw=0.5):
             plt.text(tellu[i], val, i, fontsize=7, c="crimson")
 
 
-def _plot_uvdata_coord(tab, ax=None, rotation=0):
+def _plot_uvdata_coord(tab, ax=None, rotation=0, ms=4):
     """Plot u-v coordinated of a bunch of data (see `plot_uv()`)."""
     if (type(tab) != list) & (type(tab) != np.ndarray):
         tab = [tab]
@@ -1749,12 +2488,14 @@ def _plot_uvdata_coord(tab, ax=None, rotation=0):
             angle = np.deg2rad(rotation)
             um = np.squeeze(u * np.cos(angle) - v * np.sin(angle))
             vm = np.squeeze(u * np.sin(angle) + v * np.cos(angle))
-            ax.plot(um, vm, color=p_color, label=label, marker="o", ms=4)
-            ax.plot(-um, -vm, ms=4, color=p_color, marker="o")
+            ax.plot(um, vm, color=p_color, label=label, marker="o", ms=ms, zorder=20)
+            ax.plot(-um, -vm, ms=ms, color=p_color, marker="d", zorder=20)
     return None
 
 
-def _plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
+def _plot_v2_residuals(
+    data, param, fitOnly=None, hue=None, plot_line=False, use_flag=True, display=True
+):
     if fitOnly is None:
         fitOnly = []
 
@@ -1773,7 +2514,10 @@ def _plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
     for d in data:
         for k in input_keys:
             nbl = d.vis2.shape[0]
-            nwl = d.vis2.shape[1]
+            if len(d.vis2.shape) == 1:
+                nwl = 1
+            else:
+                nwl = d.vis2.shape[1]
             if k == "wl":
                 for _ in range(nbl):
                     dict_obs[k].extend(np.round(d[k] * 1e6, 3))
@@ -1811,73 +2555,126 @@ def _plot_v2_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
     if hue == "wl":
         label = "Wavelenght [µm]"
 
-    fig = plt.figure(constrained_layout=False, figsize=(7, 7))
-    axd = fig.subplot_mosaic(
-        [["vis2"], ["res_vis2"]],
-        gridspec_kw={"height_ratios": [3, 1]},
-    )
-    ax = sns.scatterplot(
-        x="freq_vis2",
-        y="vis2",
-        data=df,
-        palette="crest",
-        zorder=10,
-        label=label,
-        ax=axd["vis2"],
-        style=None,
-        hue=hue,
-    )
+    if display:
+        fig = plt.figure(constrained_layout=False, figsize=(9, 7))
+        sns.set_theme(style="whitegrid")
+        sns.set_context("talk", font_scale=0.7)
+        axd = fig.subplot_mosaic(
+            [["vis2"], ["res_vis2"]],
+            gridspec_kw={"height_ratios": [3, 1]},
+        )
+        axd["vis2"].grid(alpha=0.2)
+        axd["res_vis2"].grid(alpha=0.2)
+        ax = sns.scatterplot(
+            x="freq_vis2",
+            y="vis2",
+            data=df,
+            palette="muted",
+            zorder=10,
+            label=label,
+            ax=axd["vis2"],
+            style=None,
+            hue=hue,
+        )
 
-    sns.scatterplot(
-        x="freq_vis2",
-        y="mod",
-        data=df,
-        color="#e19751",
-        zorder=10,
-        marker="^",
-        label=r"MODEL ($\chi^2_r=%2.2f$)" % chi2_vis2,
-        ax=axd["vis2"],
-    )
-    ax.errorbar(
-        df.freq_vis2,
-        df.vis2,
-        yerr=df.e_vis2,
-        fmt="None",
-        zorder=1,
-        color="gray",
-        alpha=0.4,
-        capsize=2,
-    )
-    sns.scatterplot(
-        x="freq_vis2",
-        y="res",
-        data=df,
-        zorder=10,
-        ax=axd["res_vis2"],
-    )
-    axd["res_vis2"].sharex(axd["vis2"])
-    plt.xlabel(r"Sp. Freq. [arcsec$^{-1}$]")
-    axd["vis2"].set_ylabel("V$^{2}$")
-    axd["vis2"].set_xlabel("")
-    axd["vis2"].set_ylim([0, 1.1])
-    axd["res_vis2"].set_ylabel(r"Residuals [$\sigma$]")
-    axd["res_vis2"].axhspan(-1, 1, alpha=0.6, color="#418fde")
-    axd["res_vis2"].axhspan(-2, 2, alpha=0.6, color="#8bb8e8")
-    axd["res_vis2"].axhspan(-3, 3, alpha=0.6, color="#c8d8eb")
-    axd["res_vis2"].set_ylim(-5, 5)
+        wl_i1 = np.arange(0, len(df["wl"]), 4) + 0
+        wl_i2 = np.arange(0, len(df["wl"]), 4) + 1
+        wl_i3 = np.arange(0, len(df["wl"]), 4) + 2
+        wl_i4 = np.arange(0, len(df["wl"]), 4) + 3
 
-    axd["vis2"].tick_params(
-        axis="x",  # changes apply to the x-axis
-        which="major",  # both major and minor ticks are affected
-        bottom=False,  # ticks along the bottom edge are off
-        top=False,  # ticks along the top edge are off
-        labelbottom=False,  # labels along the bottom edge are off)
-    )
-    plt.subplots_adjust(hspace=0.1, top=0.98, right=0.98, left=0.11)
+        l_blname = list(set(df["blname"]))
+
+        if not plot_line:
+            sns.scatterplot(
+                x="freq_vis2",
+                y="mod",
+                data=df,
+                color="#4d5456",
+                zorder=10,
+                marker="p",
+                # s=12,
+                alpha=0.4,
+                label=r"MODEL ($\chi^2_r=%2.2f$)" % chi2_vis2,
+                ax=axd["vis2"],
+            )
+        else:
+            for tmp in l_blname:
+                cond = df["blname"] == tmp
+                n_wl_tmp = len(df["wl"][cond])
+                wl_i1 = np.arange(0, n_wl_tmp, 4) + 0
+                wl_i2 = np.arange(0, n_wl_tmp, 4) + 1
+                wl_i3 = np.arange(0, n_wl_tmp, 4) + 2
+                wl_i4 = np.arange(0, n_wl_tmp, 4) + 3
+                tab_index = [wl_i1, wl_i2, wl_i3, wl_i4]
+                for x in tab_index:
+                    axd["vis2"].plot(
+                        np.array(df["freq_vis2"][cond])[x],
+                        np.array(df["mod"][cond])[x],
+                        marker="^",
+                        markerfacecolor="#e19751",
+                        color="k",
+                        zorder=10,
+                        alpha=0.6,
+                        ls="-",
+                    )
+
+        # axd["vis2"].plot(
+        #     np.nan,
+        #     np.nan,
+        #     marker="^",
+        #     markerfacecolor="#e19751",
+        #     label=r"MODEL ($\chi^2_r=%2.2f$)" % chi2_vis2,
+        #     color="k",
+        #     zorder=10,
+        #     alpha=0.6,
+        #     ls="-",
+        # )
+        axd["vis2"].legend(fontsize=10)
+
+        ax.errorbar(
+            df.freq_vis2,
+            df.vis2,
+            yerr=df.e_vis2,
+            fmt="None",
+            zorder=1,
+            color="gray",
+            alpha=0.4,
+            capsize=2,
+        )
+        sns.scatterplot(
+            x="freq_vis2",
+            y="res",
+            data=df,
+            zorder=10,
+            ax=axd["res_vis2"],
+        )
+        axd["res_vis2"].sharex(axd["vis2"])
+        plt.xlabel(r"Sp. Freq. [arcsec$^{-1}$]")
+        axd["vis2"].set_ylabel("V$^{2}$")
+        axd["vis2"].set_xlabel("")
+        axd["vis2"].set_ylim([0.4, 1.0])
+        axd["vis2"].set_xlim([50, 350])
+        axd["res_vis2"].set_xlim([50, 350])
+        axd["res_vis2"].set_ylabel(r"Residuals [$\sigma$]")
+        axd["res_vis2"].axhspan(-1, 1, alpha=0.6, color="#418fde")
+        axd["res_vis2"].axhspan(-2, 2, alpha=0.6, color="#8bb8e8")
+        axd["res_vis2"].axhspan(-3, 3, alpha=0.6, color="#c8d8eb")
+        axd["res_vis2"].set_ylim(-5, 5)
+
+        axd["vis2"].tick_params(
+            axis="x",  # changes apply to the x-axis
+            which="major",  # both major and minor ticks are affected
+            bottom=False,  # ticks along the bottom edge are off
+            top=False,  # ticks along the top edge are off
+            labelbottom=False,  # labels along the bottom edge are off)
+        )
+        plt.subplots_adjust(hspace=0.1, top=0.98, right=0.98, left=0.11)
     return df, chi2_vis2, chi2_vis2_full, mod_v2
 
 
-def _plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
+def _plot_cp_residuals(
+    data, param, fitOnly=None, hue=None, use_flag=True, cp_max=200, display=True
+):
     if fitOnly is None:
         fitOnly = []
 
@@ -1896,7 +2693,10 @@ def _plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
     for d in data:
         for k in input_keys:
             nbl = d.cp.shape[0]
-            nwl = d.cp.shape[1]
+            if len(d.cp.shape) == 1:
+                nwl = 1
+            else:
+                nwl = d.cp.shape[1]
             if k == "wl":
                 for _ in range(nbl):
                     dict_obs[k].extend(np.round(d[k] * 1e6, 3))
@@ -1932,78 +2732,159 @@ def _plot_cp_residuals(data, param, fitOnly=None, hue=None, use_flag=True):
     if np.max(abs(df["res"])) >= 5:
         res_max = abs(df["res"]).max() * 1.2
 
-    fig = plt.figure(constrained_layout=False, figsize=(7, 7))
-    axd = fig.subplot_mosaic(
-        [["cp"], ["res_cp"]],
-        gridspec_kw={"height_ratios": [3, 1]},
-    )
-    label = "DATA"
-    if hue == "wl":
-        label = "Wavelenght [µm]"
-    ax = sns.scatterplot(
-        x="freq_cp",
-        y="cp",
-        data=df,
-        palette="crest",
-        zorder=10,
-        label=label,
-        ax=axd["cp"],
-        style=None,
-        hue=hue,
-    )
-    sns.scatterplot(
-        x="freq_cp",
-        y="mod",
-        data=df,
-        color="#e19751",
-        zorder=10,
-        marker="^",
-        label=r"MODEL ($\chi^2_r=%2.2f$)" % chi2_cp,
-        ax=axd["cp"],
-    )
-    ax.errorbar(
-        df.freq_cp,
-        df.cp,
-        yerr=df.e_cp,
-        fmt="None",
-        zorder=1,
-        color="gray",
-        alpha=0.4,
-        capsize=2,
-    )
-    sns.scatterplot(
-        x="freq_cp",
-        y="res",
-        data=df,
-        zorder=10,
-        ax=axd["res_cp"],
-    )
-    axd["res_cp"].sharex(axd["cp"])
-    plt.xlabel(r"Sp. Freq. [arcsec$^{-1}$]")
-    axd["cp"].set_ylabel(r"Closure phase $\phi$ [deg]")
-    axd["cp"].set_xlabel("")
-    axd["cp"].set_ylim(-10, 10)
-    axd["res_cp"].set_ylabel(r"Residuals [$\sigma$]")
-    axd["res_cp"].axhspan(-1, 1, alpha=0.6, color="#418fde")
-    axd["res_cp"].axhspan(-2, 2, alpha=0.6, color="#8bb8e8")
-    axd["res_cp"].axhspan(-3, 3, alpha=0.6, color="#c8d8eb")
-    axd["res_cp"].set_ylim(-res_max, res_max)
+    if display:
+        fig = plt.figure(constrained_layout=False, figsize=(7, 5))
+        sns.set_theme(style="whitegrid")
+        sns.set_context("talk", font_scale=0.7)
+        # plt.grid(alpha=0.2)
+        axd = fig.subplot_mosaic(
+            [["cp"], ["res_cp"]],
+            gridspec_kw={"height_ratios": [3, 1]},
+        )
+        label = "DATA"
+        if hue == "wl":
+            label = "Wavelenghts [µm]"
+        ax = sns.scatterplot(
+            x="freq_cp",
+            y="cp",
+            data=df,
+            palette="turbo",
+            zorder=10,
+            label=label,
+            ax=axd["cp"],
+            style=None,
+            hue=hue,
+        )
+        axd["cp"].grid(alpha=0.2)
+        axd["res_cp"].grid(alpha=0.2)
 
-    axd["cp"].tick_params(
-        axis="x",  # changes apply to the x-axis
-        which="major",  # both major and minor ticks are affected
-        bottom=False,  # ticks along the bottom edge are off
-        top=False,  # ticks along the top edge are off
-        labelbottom=False,  # labels along the bottom edge are off)
-    )
-    plt.subplots_adjust(hspace=0.1, top=0.98, right=0.98, left=0.11)
+        sns.scatterplot(
+            x="freq_cp",
+            y="mod",
+            data=df,
+            color="#e19751",
+            zorder=11,
+            alpha=0.7,
+            marker="^",
+            ls="-",
+            label=r"MODEL ($\chi^2_r=%2.2f$)" % chi2_cp,
+            ax=axd["cp"],
+        )
+
+        np.arange(0, 43, 4) + 0
+        np.arange(0, 43, 4) + 1
+        np.arange(0, 43, 4) + 2
+        np.arange(0, 43, 4) + 3
+
+        np.arange(0, len(df["wl"]), 4) + 0
+        np.arange(0, len(df["wl"]), 4) + 1
+        np.arange(0, len(df["wl"]), 4) + 2
+        np.arange(0, len(df["wl"]), 4) + 3
+
+        list(set(df["cpname"]))
+
+        # for tmp in l_blname:
+        #     cond = df['cpname'] == tmp
+        #     n_wl_tmp = len(df['wl'][cond])
+        #     wl_i1 = np.arange(0, n_wl_tmp, 4) + 0
+        #     wl_i2 = np.arange(0, n_wl_tmp, 4) + 1
+        #     wl_i3 = np.arange(0, n_wl_tmp, 4) + 2
+        #     wl_i4 = np.arange(0, n_wl_tmp, 4) + 3
+        #     tab_index = [wl_i1, wl_i2, wl_i3, wl_i4]
+        #     for x in tab_index:
+        #         axd["cp"].plot(
+        #             np.array(df["freq_cp"][cond])[x],
+        #             np.array(df["mod"][cond])[x],
+        #             marker="^",
+        #             markerfacecolor="#e19751",
+        #             color="k",
+        #             zorder=10,
+        #             alpha=0.6,
+        #             ls="-",
+        #         )
+
+        # axd["cp"].plot(
+        #     np.nan,
+        #     np.nan,
+        #     marker="^",
+        #     markerfacecolor="#e19751",
+        #     label=r"MODEL ($\chi^2_r=%2.2f$)" % chi2_cp,
+        #     color="k",
+        #     zorder=10,
+        #     alpha=0.6,
+        #     ls="-",
+        # )
+        axd["cp"].legend(fontsize=10)
+        # for x in tab_index:
+        #     axd["cp"].plot(
+        #         df["freq_cp"][x],
+        #         df["mod"][x],
+        #         marker="^",
+        #         markerfacecolor="#e19751",
+        #         color="k",
+        #         zorder=10,
+        #         alpha=0.6,
+        #         ls="-",
+        #     )
+
+        # axd["cp"].plot(
+        #     np.nan,
+        #     np.nan,
+        #     marker="^",
+        #     markerfacecolor="#e19751",
+        #     label=r"MODEL ($\chi^2_r=%2.2f$)" % chi2_cp,
+        #     color="k",
+        #     zorder=10,
+        #     alpha=0.6,
+        #     ls="-",
+        # )
+        # axd["cp"].legend()
+
+        ax.errorbar(
+            df.freq_cp,
+            df.cp,
+            yerr=df.e_cp,
+            fmt="None",
+            zorder=1,
+            color="gray",
+            alpha=0.4,
+            capsize=2,
+        )
+        sns.scatterplot(
+            x="freq_cp",
+            y="res",
+            data=df,
+            zorder=10,
+            ax=axd["res_cp"],
+        )
+        axd["res_cp"].sharex(axd["cp"])
+        plt.xlabel(r"Sp. Freq. [arcsec$^{-1}$]")
+        axd["cp"].set_ylabel(r"Closure phase $\phi$ [deg]")
+        axd["cp"].set_xlabel("")
+        axd["cp"].set_ylim(-cp_max, cp_max)
+        axd["res_cp"].set_ylabel(r"Residuals [$\sigma$]")
+        axd["res_cp"].axhspan(-1, 1, alpha=0.6, color="#418fde")
+        axd["res_cp"].axhspan(-2, 2, alpha=0.6, color="#8bb8e8")
+        axd["res_cp"].axhspan(-3, 3, alpha=0.6, color="#c8d8eb")
+        axd["res_cp"].set_ylim(-res_max, res_max)
+        axd["cp"].set_xlim([50, 350])
+        axd["res_cp"].set_xlim([50, 350])
+
+        axd["cp"].tick_params(
+            axis="x",  # changes apply to the x-axis
+            which="major",  # both major and minor ticks are affected
+            bottom=False,  # ticks along the bottom edge are off
+            top=False,  # ticks along the top edge are off
+            labelbottom=False,  # labels along the bottom edge are off)
+        )
+        plt.subplots_adjust(hspace=0.1, top=0.98, right=0.98, left=0.11)
     return df, chi2_cp, chi2_cp_full, mod_cp
 
 
 def symmetrical_colormap(cmap_settings, new_name=None):
     """This function take a colormap and create a new one, as the concatenation of itself by a symmetrical fold."""
     # get the colormap
-    cmap = plt.cm.get_cmap(*cmap_settings)
+    cmap = matplotlib.colormaps[cmap_settings]
     if not new_name:
         new_name = "sym_" + cmap_settings[0]  # ex: 'sym_Blues'
 
@@ -2194,7 +3075,7 @@ def plot_image_model_pcs(
     xx, yy = np.arange(npix), np.arange(npix)
     xx_c = xx - npix // 2 - 0.5
     yy_c = yy - npix // 2
-    distance = np.sqrt(xx_c ** 2 + yy_c[:, np.newaxis] ** 2) * pix
+    distance = np.sqrt(xx_c**2 + yy_c[:, np.newaxis] ** 2) * pix
 
     l_cmass = []
     for x in pcs["wl"]:
@@ -2364,3 +3245,434 @@ def plot_model_RT(
         plt.axis([fov / 2, -fov // 2, -fov / 2, fov / 2])
     plt.tight_layout()
     return image, extent
+
+
+def fit_ellipse(x, y):
+    """
+
+    Fit the coefficients a,b,c,d,e,f, representing an ellipse described by
+    the formula F(x,y) = ax^2 + bxy + cy^2 + dx + ey + f = 0 to the provided
+    arrays of data points x=[x1, x2, ..., xn] and y=[y1, y2, ..., yn].
+
+    Based on the algorithm of Halir and Flusser, "Numerically stable direct
+    least squares fitting of ellipses'.
+
+
+    """
+
+    D1 = np.vstack([x**2, x * y, y**2]).T
+    D2 = np.vstack([x, y, np.ones(len(x))]).T
+    S1 = D1.T @ D1
+    S2 = D1.T @ D2
+    S3 = D2.T @ D2
+    T = -np.linalg.inv(S3) @ S2.T
+    M = S1 + S2 @ T
+    C = np.array(((0, 0, 2), (0, -1, 0), (2, 0, 0)), dtype=float)
+    M = np.linalg.inv(C) @ M
+    eigval, eigvec = np.linalg.eig(M)
+    con = 4 * eigvec[0] * eigvec[2] - eigvec[1] ** 2
+    ak = eigvec[:, np.nonzero(con > 0)[0]]
+    return np.concatenate((ak, T @ ak)).ravel()
+
+
+def cart_to_pol(coeffs):
+    """
+
+    Convert the cartesian conic coefficients, (a, b, c, d, e, f), to the
+    ellipse parameters, where F(x, y) = ax^2 + bxy + cy^2 + dx + ey + f = 0.
+    The returned parameters are x0, y0, ap, bp, e, phi, where (x0, y0) is the
+    ellipse centre; (ap, bp) are the semi-major and semi-minor axes,
+    respectively; e is the eccentricity; and phi is the rotation of the semi-
+    major axis from the x-axis.
+
+    """
+
+    # We use the formulas from https://mathworld.wolfram.com/Ellipse.html
+    # which assumes a cartesian form ax^2 + 2bxy + cy^2 + 2dx + 2fy + g = 0.
+    # Therefore, rename and scale b, d and f appropriately.
+    a = coeffs[0]
+    b = coeffs[1] / 2
+    c = coeffs[2]
+    d = coeffs[3] / 2
+    f = coeffs[4] / 2
+    g = coeffs[5]
+
+    den = b**2 - a * c
+    if den > 0:
+        raise ValueError(
+            "coeffs do not represent an ellipse: b^2 - 4ac must" " be negative!"
+        )
+
+    # The location of the ellipse centre.
+    x0, y0 = (c * d - b * f) / den, (a * f - b * d) / den
+
+    num = 2 * (a * f**2 + c * d**2 + g * b**2 - 2 * b * d * f - a * c * g)
+    fac = np.sqrt((a - c) ** 2 + 4 * b**2)
+    # The semi-major and semi-minor axis lengths (these are not sorted).
+    ap = np.sqrt(num / den / (fac - a - c))
+    bp = np.sqrt(num / den / (-fac - a - c))
+
+    # Sort the semi-major and semi-minor axis lengths but keep track of
+    # the original relative magnitudes of width and height.
+    width_gt_height = True
+    if ap < bp:
+        width_gt_height = False
+        ap, bp = bp, ap
+
+    # The eccentricity.
+    r = (bp / ap) ** 2
+    if r > 1:
+        r = 1 / r
+    e = np.sqrt(1 - r)
+
+    # The angle of anticlockwise rotation of the major-axis from x-axis.
+    if b == 0:
+        phi = 0 if a < c else np.pi / 2
+    else:
+        phi = np.arctan((2.0 * b) / (a - c)) / 2
+        if a > c:
+            phi += np.pi / 2
+    if not width_gt_height:
+        # Ensure that phi is the angle to rotate to the semi-major axis.
+        phi += np.pi / 2
+    phi = phi % np.pi
+
+    return x0, y0, ap, bp, e, phi
+
+
+def get_ellipse_pts(params, npts=100, tmin=0, tmax=2 * np.pi):
+    """
+    Return npts points on the ellipse described by the params = x0, y0, ap,
+    bp, e, phi for values of the parametric variable t between tmin and tmax.
+
+    """
+
+    x0, y0, ap, bp, e, phi = params
+    # A grid of the parametric variable, t.
+    t = np.linspace(tmin, tmax, npts)
+    x = x0 + ap * np.cos(t) * np.cos(phi) - bp * np.sin(t) * np.sin(phi)
+    y = y0 + ap * np.cos(t) * np.sin(phi) + bp * np.sin(t) * np.cos(phi)
+    return x, y
+
+
+def _compute_res_patch(dataset, px, py, color="w"):
+    uc_all, vc_all = [], []
+    for d in dataset:
+        ucoord = abs(d.u)
+        vcoord = abs(d.v)
+        ucoord = ucoord[ucoord > 0]
+        vcoord = vcoord[vcoord > 0]
+        uc_all.append(ucoord)
+        uc_all.append(-ucoord)
+        vc_all.append(vcoord)
+        vc_all.append(-vcoord)
+
+    uc_all = np.array(uc_all).flatten()
+    vc_all = np.array(vc_all).flatten()
+    coeffs = fit_ellipse(uc_all, vc_all)
+    x0, y0, ap, bp, e, phi = cart_to_pol(coeffs)
+    x, y = get_ellipse_pts((x0, y0, ap, bp, e, phi))
+
+    bl_len = (x**2 + y**2) ** 0.5
+
+    r, theta = [], []
+    for i in range(len(x)):
+        tmp = cart2pol(x[i], y[i])
+        r.append(tmp[0])
+        theta.append(tmp[1] + 90)
+
+    bl_res = rad2mas(dataset[0].wl.min() / (2 * bl_len))
+    # theta_res = np.array(theta)[bl_res == bl_res.min()][0]
+
+    e2 = patches.Circle(
+        (px, py),
+        bl_res.min() / 2.0,
+        linewidth=1,
+        fill=True,
+        zorder=3,
+        color=color,
+    )
+
+    # e1 = patches.Ellipse(
+    #     (px, py),
+    #     bl_res.min(),
+    #     bl_res.max(),
+    #     angle=theta_res,
+    #     linewidth=1,
+    #     fill=True,
+    #     zorder=3,
+    #     color=color,
+    # )
+    return e2
+
+
+def plot_dphi_time(d, vel_max=140, dphi_max=4, restframe=2.1662, fig=None):
+    l_blname = list(sorted(set(d.blname)))
+    dic_sub = {}
+    for i in range(len(l_blname)):
+        dic_sub[l_blname[i]] = i + 1
+    l_blname = np.array(l_blname)
+
+    if (type(d) != list) & (type(d) != np.ndarray):
+        tab = [d]
+    dic_color = _update_color_bl(tab)
+
+    ins = "GRAVITY"
+    if d.wl[0] * 1e6 < 1:
+        ins = "SPICA"
+
+    l1, l2, l3, l4, l5, l6 = [], [], [], [], [], []
+    b1, b2, b3, b4, b5, b6 = 0, 0, 0, 0, 0, 0
+    n_time = 0
+    for ibl in range(len(d.dphi)):
+        blname = d.blname[ibl]
+        if dic_sub[blname] == 1:
+            l1.append(d.dphi[ibl])
+            b1 += d.bl[ibl]
+            n_time += 1
+        elif dic_sub[blname] == 2:
+            l2.append(d.dphi[ibl])
+            b2 += d.bl[ibl]
+        elif dic_sub[blname] == 3:
+            l3.append(d.dphi[ibl])
+            b3 += d.bl[ibl]
+        elif dic_sub[blname] == 4:
+            l4.append(d.dphi[ibl])
+            b4 += d.bl[ibl]
+        elif dic_sub[blname] == 5:
+            l5.append(d.dphi[ibl])
+            b5 += d.bl[ibl]
+        elif dic_sub[blname] == 6:
+            l6.append(d.dphi[ibl])
+            b6 += d.bl[ibl]
+
+    b1 /= n_time
+    b2 /= n_time
+    b3 /= n_time
+    b4 /= n_time
+    b5 /= n_time
+    b6 /= n_time
+
+    l_b = np.array([b1, b2, b3, b4, b5, b6])
+
+    x = d.wl * 1e6
+    x2 = ((x - restframe) / restframe) * c_light / 1e3
+
+    ll = np.array([l1, l2, l3, l4, l5, l6], dtype="object")
+    ll = ll[np.argsort(l_b)]
+    l_b2 = l_b[np.argsort(l_b)]
+
+    l_blname_sort = l_blname[np.argsort(l_b)]
+
+    sns.set_context("talk", font_scale=0.9)
+    if fig is None:
+        fig = plt.figure(figsize=(7, 5.8))
+
+    N = len(l1)
+    if ins == "GRAVITY":
+        plt.rcParams["axes.prop_cycle"] = plt.cycler(
+            "color", plt.cm.Spectral(np.linspace(0, 1, N))
+        )
+        cmap = "Spectral"
+    else:
+        plt.rcParams["axes.prop_cycle"] = plt.cycler(
+            "color", plt.cm.cool(np.linspace(0, 1, N))
+        )
+        cmap = "cool"
+
+    for i in range(6):
+        ax = plt.subplot(3, 2, i + 1)
+        txt = f"{l_blname_sort[i]}={l_b2[i]:2.0f}m"
+        try:
+            color = dic_color[l_blname_sort[i]]
+        except KeyError:
+            color = "k"
+
+        left = 0.12
+        right = 0.88
+        if ins == "SPICA":
+            # color = "k"
+            left = 0.18
+            right = 0.82
+
+        plt.text(
+            -70,
+            0.8 * dphi_max,
+            txt,
+            ha="center",
+            va="center",
+            fontsize=11,
+            color=color,
+        )
+        alpha = 1
+        l_max = []
+        for j in range(len(l1)):
+            plt.plot(x2, ll[i][j])
+            l_max.append(j)
+            alpha -= 0.12
+        plt.ylim(-dphi_max, dphi_max)
+        plt.xlim(-vel_max, vel_max)
+        plt.axvline(0, color="k", zorder=0, alpha=0.5)
+        if i not in [4, 5]:
+            plt.setp(ax.get_xticklabels(), visible=False)
+        else:
+            plt.xlabel("Velocity [km/s]")
+        if i not in [0, 2, 4]:
+            plt.setp(ax.get_yticklabels(), visible=False)
+        else:
+            plt.ylabel(r"Diff. $\phi$ [deg]")
+        # plt.grid(alpha=0.2)
+        ax.yaxis.set_ticks(np.array([-2, 0, 2]))
+        # plt.xticks(np.arange(-200, 200, 50))
+        # plt.yticks([-2, 0, 2])
+
+    bottom = 0.12
+    top = 0.98
+    cbar_ax = fig.add_axes([right + 0.01, bottom, 0.02, top - bottom])
+
+    im = plt.scatter(l_max, l_max, c=l_max, cmap=cmap)
+
+    cbar = fig.colorbar(im, cax=cbar_ax)
+    cbar.set_label("Rel. time [hours]", color="black")
+    # cbar.ax.yaxis.set_tick_params(color="black")
+    # cbar.ax.xaxis.set_ticks_position("top")
+    # ax.set_aspect("equal", adjustable="box")
+    # plt.yticks(np.array([-2, 0, 2]))
+    plt.subplots_adjust(
+        right=right, top=top, hspace=0.09, wspace=0.06, bottom=bottom, left=left
+    )
+    return fig
+
+
+def plot_condition(l_mjd, l_seeing, l_tau, tau_min=3, seeing_max=1, tau_lim=10):
+    """Plot weather conditions of the observation: seeing [arcsec] and
+    coherence times [ms]."""
+    from astropy.time import Time
+
+    sns.set_theme(color_codes=True)
+    sns.set_context("talk", font_scale=0.9)
+
+    time_obs = Time(np.array(l_mjd), format="mjd").datetime
+
+    print(f"mjd = {round(np.mean(l_mjd), 2)}")
+    l_seeing = np.array(l_seeing)
+    l_tau = np.array(l_tau)
+
+    index_files = np.arange(len(l_seeing))
+    cond_seeing, cond_tau = (l_seeing < seeing_max), (l_tau > tau_min)
+
+    scat_style = {"edgecolor": "k", "s": 150, "zorder": 10}
+
+    tau_min = round(np.min(l_tau), 1)
+    tau_max = round(np.max(l_tau), 1)
+    see_min = round(np.min(l_seeing), 2)
+    see_max = round(np.max(l_seeing), 2)
+
+    print(f"tau = {tau_min}-{tau_max} ms")
+    print(f"seeing = {see_min}-{see_max} arcsec")
+
+    fig = plt.figure(figsize=(9, 8))
+    ax = plt.subplot(211)
+    plt.plot(time_obs, l_tau)
+    plt.scatter(
+        time_obs[~cond_tau],
+        l_tau[~cond_tau],
+        color="#d19e9e",
+        **scat_style,
+    )
+    plt.scatter(
+        time_obs[cond_tau & ~cond_seeing],
+        l_tau[cond_tau & ~cond_seeing],
+        color="#d1e67f",
+        label="tau0 > %i ms" % tau_min,
+        **scat_style,
+    )
+    plt.scatter(
+        time_obs[cond_tau & cond_seeing],
+        l_tau[cond_tau & cond_seeing],
+        color="g",
+        label="tau0 > %i ms & seeing < %i arcsec" % (tau_min, seeing_max),
+        **scat_style,
+    )
+
+    plt.legend(loc="best")
+    for i in range(len(time_obs)):
+        plt.text(
+            time_obs[i],
+            l_tau[i],
+            index_files[i],
+            va="center",
+            ha="center",
+            fontsize=6,
+            zorder=11,
+        )
+
+    plt.axhline(3, color="coral", ls="--", lw=1)
+    plt.axhline(5.2, color="coral", ls="--", lw=1)
+    plt.axhline(4.1, color="coral", ls="--", lw=1)
+    plt.text(
+        time_obs[0], 5.2 + 0.01, "Very good", ha="left", va="bottom", color="coral"
+    )
+    plt.text(time_obs[0], 4.1 + 0.01, "Good", ha="left", va="bottom", color="coral")
+    plt.text(time_obs[0], 3 - 0.1, "Fast", ha="left", va="top", color="coral")
+    plt.ylabel("Coherence time [ms]")
+    plt.ylim(0, tau_lim)
+    plt.setp(ax.get_xticklabels(), visible=False)
+
+    fs = 10
+    plt.subplot(212, sharex=ax)
+    plt.ylabel("Seeing [arcsec]")
+    plt.plot(time_obs, l_seeing)
+    plt.scatter(
+        time_obs[cond_seeing],
+        l_seeing[cond_seeing],
+        color="g",
+        label="seeing < %i arcsec" % seeing_max,
+        **scat_style,
+    )
+    plt.scatter(
+        time_obs[~cond_seeing],
+        l_seeing[~cond_seeing],
+        color="#d19e9e",
+        **scat_style,
+    )
+    plt.legend(loc="best")
+    for i in range(len(time_obs)):
+        plt.text(
+            time_obs[i],
+            l_seeing[i],
+            index_files[i],
+            va="center",
+            ha="center",
+            fontsize=6,
+            zorder=11,
+        )
+    plt.text(
+        time_obs[0],
+        1.2 - 0.03,
+        "70%",
+        ha="right",
+        va="top",
+        color="orange",
+        fontsize=fs,
+    )
+    plt.axhspan(1, 1.2, alpha=0.2, color="orange")
+    plt.text(time_obs[0], 1 - 0.03, "50%", ha="right", va="top", color="y", fontsize=fs)
+    plt.axhspan(0.8, 1, alpha=0.2, color="y")
+    plt.text(
+        time_obs[0], 0.8 - 0.03, "30%", ha="right", va="top", color="g", fontsize=fs
+    )
+    plt.axhspan(0.6, 0.8, alpha=0.2, color="g")
+    plt.text(
+        time_obs[0], 0.6 - 0.03, "10%", ha="right", va="top", color="b", fontsize=fs
+    )
+    plt.axhspan(0.1, 0.6, alpha=0.2, color="b")
+    plt.ylim(0.0, 1.9)
+    plt.gcf().autofmt_xdate()
+    plt.xlabel("TIME")
+    plt.subplots_adjust(bottom=0.13, left=0.1, right=0.99, hspace=0.1, top=0.99)
+    return fig
+    plt.gcf().autofmt_xdate()
+    plt.xlabel("TIME")
+    plt.subplots_adjust(bottom=0.13, left=0.1, right=0.99, hspace=0.1, top=0.99)
+    return fig
