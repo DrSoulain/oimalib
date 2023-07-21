@@ -1,6 +1,7 @@
+import sys
+
 import numpy as np
 import scipy
-import sys
 
 if sys.version_info >= (3, 9):
     import importlib.resources as importlib_resources
@@ -55,16 +56,16 @@ def shiftcomp(angle, shift):
                 north.append(shift[i] * np.cos(np.deg2rad(angle[i])))
                 east.append(shift[i] * np.sin(np.deg2rad(angle[i])))
             if angle[i] > 90 and angle[i] <= 180:
-                north.append((-shift[i] * np.cos(np.deg2rad(180 - angle[i]))))
+                north.append(-shift[i] * np.cos(np.deg2rad(180 - angle[i])))
                 east.append(shift[i] * np.sin(np.deg2rad(180 - angle[i])))
 
             if angle[i] > 180 and angle[i] <= 270:
-                north.append((-shift[i] * np.sin(np.deg2rad(270 - angle[i]))))
-                east.append((-shift[i] * np.cos(np.deg2rad(270 - angle[i]))))
+                north.append(-shift[i] * np.sin(np.deg2rad(270 - angle[i])))
+                east.append(-shift[i] * np.cos(np.deg2rad(270 - angle[i])))
 
             if angle[i] > 270 and angle[i] <= 360:
                 north.append(shift[i] * np.cos(np.deg2rad(360 - angle[i])))
-                east.append((-shift[i] * np.sin(np.deg2rad(360 - angle[i]))))
+                east.append(-shift[i] * np.sin(np.deg2rad(360 - angle[i])))
 
     return east, north
 

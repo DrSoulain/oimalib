@@ -3,7 +3,7 @@ import seaborn as sns
 from astropy.io import fits
 from matplotlib import pyplot as plt
 
-from magneto.tools import contvis, totvis, totphase, totflux, plvis, pldp
+from magneto.tools import contvis, pldp, plvis, totflux, totphase, totvis
 
 
 class Model:
@@ -92,8 +92,12 @@ class Model:
             plt.ylabel("Norm. flux")
             plt.tight_layout()
 
-    def build_coordinates(self, baseline_length, baseline_angle, pa=[0], display=False):
+    def build_coordinates(
+        self, baseline_length, baseline_angle, pa=None, display=False
+    ):
         """Build array coordinates and rotate (if any)."""
+        if pa is None:
+            pa = [0]
         from magneto.tools import shiftcomp
 
         if (type(pa) is float) or (type(pa) is int):
