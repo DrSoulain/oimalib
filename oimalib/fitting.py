@@ -34,6 +34,17 @@ err_pts_style = {
 }
 
 
+err_pts_style_f = {
+    "linestyle": "None",
+    "capsize": 1.5,
+    "ecolor": "#364f6b",
+    "mec": "#364f6b",
+    "marker": ".",
+    "elinewidth": 1,
+    "alpha": 1,
+}
+
+
 def select_model(name):
     """Select a simple model computed in the Fourier space
     (check model.py)"""
@@ -47,12 +58,16 @@ def select_model(name):
         model = complex_models.visEllipticalUniformDisk
     elif name == "debrisDisk":
         model = complex_models.visDebrisDisk
+    elif name == "multipleRing":
+        model = complex_models.visMultipleRing
     elif name == "clumpyDebrisDisk":
         model = complex_models.visClumpDebrisDisk
     elif name == "gdisk":
         model = complex_models.visGaussianDisk
     elif name == "egdisk":
         model = complex_models.visEllipticalGaussianDisk
+    elif name == "egdisk2":
+        model = complex_models.visEllipticalGaussianDisk2
     elif name == "ering":
         model = complex_models.visThickEllipticalRing
     elif name == "lor":
@@ -63,6 +78,8 @@ def select_model(name):
         model = complex_models.visLazareff
     elif name == "lazareff_halo":
         model = complex_models.visLazareff_halo
+    elif name == "lazareff_clump":
+        model = complex_models.visLazareff_clump
     elif name == "ellipsoid":
         model = complex_models.visEllipsoid
     elif name == "cont":
@@ -73,6 +90,8 @@ def select_model(name):
         model = complex_models.visLazareff_line
     elif name == "pwhl":
         model = complex_models.visPwhl
+    elif name == "orion":
+        model = complex_models.visOrionDisk
     else:
         model = None
     return model
@@ -83,6 +102,8 @@ def check_params_model(param):
     with the model."""
     isValid = True
     log = ""
+
+    prior = param.get("prior", {})
     if param["model"] == "edisk":
         elong = np.cos(np.deg2rad(param["incl"]))
         majorAxis = mas2rad(param["majorAxis"])
@@ -93,6 +114,35 @@ def check_params_model(param):
     elif param["model"] == "binary":
         dm = param["dm"]
         if dm < 0:
+            isValid = False
+    elif param["model"] == "egdisk":
+        majorAxis = param["majorAxis"]
+        incl = param["incl"]
+        pa = param["pa"]
+
+        c1 = (incl > 90.0) | (incl < 0)
+        c2 = (pa < 0) | (pa > 180)
+        if c1 | c2:
+            isValid = False
+    elif param["model"] == "edisk":
+        majorAxis = param["majorAxis"]
+        incl = param["incl"]
+        pa = param["pa"]
+
+        c1 = (incl > 90.0) | (incl < 0)
+        c2 = (pa < 0) | (pa > 180)
+        if c1 | c2:
+            isValid = False
+    elif param["model"] == "ering":
+        majorAxis = param["majorAxis"]
+        incl = param["incl"]
+        pa = param["pa"]
+        kr = param["kr"]
+
+        c1 = (incl > 90.0) | (incl < 0)
+        c2 = (pa < -180) | (pa > 180)
+        c3 = (kr < -2) | (kr > 0.0)
+        if c1 | c2 | c3:
             isValid = False
     elif param["model"] == "lazareff":
         la = param["la"]
@@ -115,7 +165,7 @@ def check_params_model(param):
         c3 = (pa < -180) | (pa > 180)
         c4 = np.invert(cond_flux)
         c5 = (la < -1) | (la > 1.5)
-        c6 = (lk < -1) | (lk > 1.0)
+        c6 = (lk < -2) | (lk > 1.0)
         c7 = (cj < -1) | (cj > 1.0)
         c8 = (sj < -1) | (sj > 1.0)
         c9 = kc < 0
@@ -133,11 +183,11 @@ def check_params_model(param):
     elif param["model"] == "lazareff_halo":
         la = param["la"]
         lk = param["lk"]
-        cj = param["cj"]
-        sj = param["sj"]
+        cj = param.get("cj", 0)
+        sj = param.get("sj", 0)
         kc = param.get("kc", 0)
 
-        flor = param["flor"]
+        flor = param.get("flor", 0)
         incl = param["incl"]
         pa = param["pa"]
 
@@ -151,21 +201,68 @@ def check_params_model(param):
         c3 = (pa < 0) | (pa > 180)
         c4 = np.invert(cond_flux)
         c5 = (la < -1) | (la > 1.5)
-        c6 = (lk < -1) | (lk > 1.0)
-        # c7 = (cj < -1) | (cj > 1.0)
-        # c8 = (sj < -1) | (sj > 1.0)
-        c9 = (kc < -1) | (kc > 0)
+        c6 = (lk < -1) | (lk > 2.0)
+        c7 = (cj < -1) | (cj > 1.0)
+        c8 = (sj < -1) | (sj > 1.0)
+        c9 = (kc < -6) | (kc > 0)
         c10 = (flor < 0) | (flor > 1)
-        if c1 | c2 | c3 | c4 | c5 | c6 | c9 | c10:
-            log = (
-                "# fs + fh + fc = 1,\n"
-                + "# 0 < incl < 90,\n"
-                + "# 0 < pa < 180 deg,\n"
-                + "# -1 < la < 1.5,\n"
-                + "# -1 < lk < 1.\n"
-                + "# -1 < cj, sj < 1.\n"
-            )
+
+        if c1 | c2 | c3 | c7 | c8:
             isValid = False
+
+        for p in prior:
+            if param[p] < prior[p][0] or (param[p] > prior[p][1]):
+                isValid = False
+
+        # if c2 | c3 | c7 | c8 | c9:
+        #     log = (
+        #         "# fs + fh + fc = 1,\n"
+        #         + "# 0 < incl < 90,\n"
+        #         + "# 0 < pa < 180 deg,\n"
+        #         + "# -1 < la < 1.5,\n"
+        #         + "# -1 < lk < 1.\n"
+        #         + "# -1 < cj, sj < 1.\n"
+        #     )
+        #     isValid = False
+    elif param["model"] == "lazareff_clump":
+        la = param["la"]
+        lk = param["lk"]
+        cj = param.get("cj", 0)
+        sj = param.get("sj", 0)
+        kc = param.get("kc", 0)
+
+        ratio_clump = param.get("ratio_clump", 0)
+        sj = param.get("sj", 0)
+        kc = param.get("kc", 0)
+
+        flor = param.get("flor", 0)
+        incl = param["incl"]
+        pa = param["pa"]
+
+        fh = param["fh"]
+        fc = param["fc"]
+        fs = 1 - fh - fc
+        cond_flux = (fh >= 0) & (fc >= 0) & (fs >= 0)
+
+        c1 = fs + fh + fc != 1
+        c2 = (incl > 90.0) | (incl < 0)
+        c3 = (pa < 0) | (pa > 180)
+        c4 = np.invert(cond_flux)
+        c5 = (la < -1) | (la > 1.5)
+        c6 = (lk < -1) | (lk > 2.0)
+        c7 = (cj < -1) | (cj > 1.0)
+        c8 = (sj < -1) | (sj > 1.0)
+        c9 = (kc < -6) | (kc > 0)
+        c10 = (flor < 0) | (flor > 1)
+
+        c11 = (ratio_clump < 0.0) | (ratio_clump > 1)
+        if c1 | c2 | c3 | c7 | c8 | c11:
+            isValid = False
+
+        for p in prior:
+            if param[p] < prior[p][0] or (param[p] > prior[p][1]):
+                isValid = False
+
     elif param["model"] == "yso_line":
         la = param["la"]
         lk = param["lk"]
@@ -202,10 +299,10 @@ def check_params_model(param):
         incl = param["incl"]
         hfr = param["hfr"]
         pa = param["pa"]
-        fs = param["fs"]
+        fh = param["fh"]
         fc = param["fc"]
-        flor = param["flor"]
-        fh = 1 - fs - fc
+        flor = param.get("flor", 0)
+        fs = 1 - fh - fc
         cond_flux = (fs >= 0) & (fc >= 0)
 
         c1 = fs + fh + fc != 1
@@ -419,7 +516,7 @@ def model_standard_v2(d, param):
     if isValid:
         model_fast
     else:
-        model_fast = [np.nan] * npts_flagged
+        model_fast = [-np.inf] * npts_flagged
     return model_fast
 
 
@@ -457,6 +554,8 @@ def compute_chi2_curve(
     tobefit=None,
     ymin=0,
     ymax=3,
+    sigma=1.0,
+    reduced=True,
 ):
     """
     Compute a 1D reduced chi2 curve to determine the pessimistic (fully correlated)
@@ -501,6 +600,9 @@ def compute_chi2_curve(
     fit_theta = fit["best"][name_param]
     fit_e_theta = fit["uncer"][name_param]
 
+    if fit_theta < array_params[0]:
+        fit_theta = array_params[0]
+
     fitOnly.remove(name_param)
     l_chi2r = []
     for pr in tqdm(array_params, desc="Chi2 curve (%s)" % name_param, ncols=100):
@@ -515,7 +617,8 @@ def compute_chi2_curve(
             epsfcn=1e-6,
             verbose=False,
         )
-        l_chi2r.append(lfits["chi2"])
+        chi2 = lfits["chi2"]
+        l_chi2r.append(chi2)
 
     n_freedom = len(fitOnly)
 
@@ -524,8 +627,8 @@ def compute_chi2_curve(
     l_chi2r = np.array(l_chi2r)
     l_chi2 = np.array(l_chi2r) * (n_pts - (n_freedom - 1))
 
-    plt.figure()
-    plt.plot(array_params, l_chi2r)
+    if not reduced:
+        l_chi2r = l_chi2
 
     chi2r_m = l_chi2r.min()
     chi2_m = l_chi2.min()
@@ -535,26 +638,30 @@ def compute_chi2_curve(
     c_left = array_params <= fitted_param
     c_right = array_params >= fitted_param
 
-    left_curve = interp1d(l_chi2r[c_left], array_params[c_left])
-    right_curve = interp1d(l_chi2r[c_right], array_params[c_right])
+    try:
+        left_curve = interp1d(l_chi2r[c_left], array_params[c_left])
+        left_res = left_curve(chi2r_m + sigma)
+        dr1_r = abs(fitted_param - left_res)
+        dr1_r = round_sci_digit(dr1_r)[0]
+    except ValueError:
+        dr1_r = array_params[0] - fit_theta
+        dr1_r = round_sci_digit(dr1_r)[0]
 
     try:
-        left_res = left_curve(chi2r_m + 1)
-        right_res = right_curve(chi2r_m + 1)
-        dr1_r = abs(fitted_param - left_res)
+        right_curve = interp1d(l_chi2r[c_right], array_params[c_right])
+        right_res = right_curve(chi2r_m + sigma)
         dr2_r = abs(fitted_param - right_res)
-        fitted_param = float(np.round(fitted_param, 2))
-        dr1_r = float(np.round(dr1_r, 2))
-        dr2_r = float(np.round(dr2_r, 2))
-        print(f"sig_chi2: {name_param} = {fitted_param} - {dr1_r} + {dr2_r}")
+        dr2_r = round_sci_digit(dr2_r)[0]
     except ValueError:
-        print("Try to increase the parameters bounds (chi2_r).")
-        return None
+        dr2_r = array_params[-1] - fit_theta
+        dr2_r = round_sci_digit(dr2_r)[0]
 
-    dr1_r = round_sci_digit(dr1_r)[0]
-    dr2_r = round_sci_digit(dr2_r)[0]
-
-    errors_chi2 = np.mean([dr1_r, dr2_r])
+    bound = np.array([dr1_r, dr2_r])
+    bound = bound[~np.isnan(bound)]
+    if len(bound) == 1:
+        errors_chi2 = bound[0]
+    else:
+        errors_chi2 = np.mean([dr1_r, dr2_r])
 
     plt.figure()
     plt.plot(
@@ -570,25 +677,29 @@ def compute_chi2_curve(
         label=f"fit: {name_param}={fit_theta:2.2f}±{fit_e_theta:2.2f}",
     )
     plt.axvspan(
-        fitted_param - dr1_r,
-        fitted_param + dr2_r,
+        fitted_param[0] - dr1_r,
+        fitted_param[0] + dr2_r,
         ymin=ymin,
         ymax=ymax,
         color="#dbe4e8",
-        label=fr"$\sigma_{{m1}}=$-{dr1_r}/+{dr2_r}",
+        label=rf"$\sigma_{{m1}}=$-{dr1_r}/+{dr2_r}",
     )
     plt.axvspan(
-        fitted_param - fit_e_theta,
-        fitted_param + fit_e_theta,
+        fitted_param[0] - fit_e_theta,
+        fitted_param[0] + fit_e_theta,
         ymin=ymin,
         ymax=ymax,
         color="#359ccb",
-        label=r"$\sigma_{m2}$",
+        # label=r"$\sigma_{m2}$",
         alpha=0.3,
     )
     plt.grid(alpha=0.1, color="grey")
     plt.legend(loc="best", fontsize=9)
-    plt.ylabel(r"$\chi^2_{red}$")
+    if reduced:
+        plt.ylabel(r"$\chi^2_{red}$")
+    else:
+        plt.ylabel(r"$\chi^2$")
+
     plt.xlim(array_params.min(), array_params.max())
     plt.tight_layout()
     plt.show(block=False)
@@ -599,6 +710,7 @@ def compute_chi2_curve(
 def smartfit(
     data,
     first_guess,
+    prior=None,
     doNotFit=None,
     fitOnly=None,
     follow=None,
@@ -630,9 +742,13 @@ def smartfit(
     if tobefit is None:
         tobefit = ["CP", "V2"]
     first_guess["fitted"] = tobefit
+    first_guess["prior"] = prior
+    first_guess["fitOnly"] = fitOnly
     # -- avoid fitting string parameters
     tmp = list(filter(lambda x: isinstance(first_guess[x], str), first_guess.keys()))
 
+    if prior is None:
+        prior = {}
     if type(data) is not list:
         data = [data]
 
@@ -658,20 +774,21 @@ def smartfit(
 
     errs = [o[-1] for o in obs]
     if normalizeErrors:
-        errs = _normalize_err_obs(obs)
+        errs = _normalize_err_obs(obs, verbose=True)
 
     Y = [o[2] for o in obs]
 
     npts = len(Y)
     npts_good_check = get_stat_data(data, verbose=False)
-    if npts_good_check != npts:
-        print("Npts data = %i (should be %i)" % (npts, npts_good_check))
-        # return None
+    if verbose:
+        if npts_good_check != npts:
+            print("Npts data = %i (should be %i)" % (npts, npts_good_check))
 
     if fast:
         fct_model = model_standard_v2
     else:
         fct_model = model_standard
+
     lfit = leastsqFit(
         fct_model,
         data,
@@ -682,6 +799,7 @@ def smartfit(
         fitOnly=fitOnly,
         follow=follow,
         normalizedUncer=False,
+        fullOutput=True,
         verbose=verbose,
         ftol=ftol,
         epsfcn=epsfcn,
@@ -869,7 +987,7 @@ def log_prior(param, prior, fitOnly):
     return 0
 
 
-def log_likelihood(p_mcmc, data, param, fitOnly, tobefit, obs=None):
+def log_likelihood(p_mcmc, data, param, fitOnly, tobefit, obs=None, fd=None, e_fd=None):
     """Compute the likelihood estimation between the model (represented by param
     and only for fitOnly parameters) and the data (obs).
 
@@ -892,10 +1010,19 @@ def log_likelihood(p_mcmc, data, param, fitOnly, tobefit, obs=None):
     y = obs[:, 2]
     e_y = obs[:, 3]
 
-    inv_sigma2 = 1.0 / (e_y ** 2)
+    inv_sigma2 = 1.0 / (e_y**2)
+
+    if "fc" in param.keys():
+        fc = param["fc"]
+        add_cons_sed = (fc - fd) ** 2 / e_fd**2
+    else:
+        add_cons_sed = 0
+
     res = -0.5 * (
         np.sum((y - model) ** 2 * inv_sigma2 - np.log(inv_sigma2.astype(float)))
+        + add_cons_sed
     )
+    # res = -.5 * (np.sum(delta_y ** 2 / sigma2 + np.log(2 * np.pi * sigma2)) + add_cons_sed)
 
     if np.isnan(res):
         return -np.inf
@@ -903,7 +1030,9 @@ def log_likelihood(p_mcmc, data, param, fitOnly, tobefit, obs=None):
         return res
 
 
-def log_probability(p_mcmc, data, param, fitOnly, prior, tobefit, obs=None):
+def log_probability(
+    p_mcmc, data, param, fitOnly, prior, tobefit, obs=None, fd=None, e_fd=None
+):
     """Similar to log_probability() but including the prior restrictions.
 
     Parameters:
@@ -926,7 +1055,9 @@ def log_probability(p_mcmc, data, param, fitOnly, prior, tobefit, obs=None):
     lp = log_prior(p_mcmc, prior, fitOnly)
     if not np.isfinite(lp):
         return -np.inf
-    return lp + log_likelihood(p_mcmc, data, param, fitOnly, tobefit, obs=obs)
+    return lp + log_likelihood(
+        p_mcmc, data, param, fitOnly, tobefit, obs=obs, fd=fd, e_fd=e_fd
+    )
 
 
 def neg_like_prob(*args):
@@ -964,7 +1095,7 @@ def _compute_initial_dist_mcmc(
             pos[:, i] = i_range
     elif method == "alex":
         p0 = np.array([param[fitOnly[i]] for i in range(nparam)])
-        pos = p0 + 1e-1 * np.random.randn(nwalkers, nparam)
+        pos = p0 + 1e-4 * np.random.randn(nwalkers, nparam)
     return pos
 
 
@@ -983,6 +1114,8 @@ def mcmcfit(
     plot_corner=False,
     burnin=50,
     tobefit=None,
+    fd=None,
+    e_fd=None,
 ):
     """ """
     ndim = len(fitOnly)
@@ -997,7 +1130,7 @@ def mcmcfit(
             obs.append(o)
     obs = np.array(obs)
 
-    args = (data, first_guess, fitOnly, prior, tobefit, obs)
+    args = (data, first_guess, fitOnly, prior, tobefit, obs, fd, e_fd)
 
     initial_mcmc = [first_guess[p] for p in fitOnly]
     if guess_likehood:
@@ -1076,15 +1209,38 @@ def get_mcmc_results(sampler, param, fitOnly, burnin=200):
     fit_mcmc = {}
     fit_mcmc["best"] = param.copy()
     fit_mcmc["uncer"] = {}
+    fit_mcmc["p"] = {}
     for i in range(ndim):
         mcmc = np.percentile(flat_samples[:, i], [16, 50, 84])
         q = np.diff(mcmc)
         txt = "{3} = {0:.3f}_{{-{1:.3f}}}^{{{2:.3f}}}"
         txt = txt.format(mcmc[1], q[0], q[1], fitOnly[i])
-        print(txt)
         fit_mcmc["best"][fitOnly[i]] = mcmc[1]
         fit_mcmc["uncer"][fitOnly[i] + "_m"] = q[0]
         fit_mcmc["uncer"][fitOnly[i] + "_p"] = q[1]
+        fit_mcmc["p"][fitOnly[i]] = ufloat(mcmc[1], np.max([q[0], q[1]]))
+
+    try:
+        ind_lk = np.argwhere(np.array(fitOnly) == "lk")[0][0]
+        ind_la = np.argwhere(np.array(fitOnly) == "la")[0][0]
+
+        lk = flat_samples[:, ind_lk]
+        la = flat_samples[:, ind_la]
+        ar = 10**la / (np.sqrt(1 + 10 ** (2 * lk)))
+        ak = ar * (10**lk)
+        a = (ar**2 + ak**2) ** 0.5
+        w = ak / a
+        mcmc2 = np.percentile(w, [16, 50, 84])
+        q = np.diff(mcmc2)
+        txt = "{3} = {0:.3f}_{{-{1:.3f}}}^{{{2:.3f}}}"
+        txt = txt.format(w[1], q[0], q[1], "w")
+        fit_mcmc["best"]["w"] = mcmc2[1]
+        fit_mcmc["uncer"]["w_m"] = q[0]
+        fit_mcmc["uncer"]["w_p"] = q[1]
+        fit_mcmc["p"]["w"] = ufloat(w[1], np.max([q[0], q[1]]))
+    except Exception:
+        pass
+
     return fit_mcmc
 
 
@@ -1096,8 +1252,8 @@ def model_flux_blue_excess(x, param):
     p2 = param["p2"]
     a2 = param["a2"]
     w2 = param["w2"]
-    y1 = a1 * np.exp(-0.5 * (x - p1) ** 2 / w1 ** 2)
-    y2 = a2 * np.exp(-0.5 * (x - p2) ** 2 / w2 ** 2)
+    y1 = a1 * np.exp(-0.5 * (x - p1) ** 2 / w1**2)
+    y2 = a2 * np.exp(-0.5 * (x - p2) ** 2 / w2**2)
     y = y1 + y2
     return y
 
@@ -1110,8 +1266,8 @@ def model_flux_red_abs(x, param):
     p2 = param["p2"]
     a2 = param["a2"]
     w2 = param["w2"]
-    y1 = a1 * np.exp(-0.5 * (x - p1) ** 2 / w1 ** 2)
-    y2 = a2 * np.exp(-0.5 * (x - p2) ** 2 / w2 ** 2)
+    y1 = a1 * np.exp(-0.5 * (x - p1) ** 2 / w1**2)
+    y2 = a2 * np.exp(-0.5 * (x - p2) ** 2 / w2**2)
     y = y1 + y2
     return y
 
@@ -1121,72 +1277,191 @@ def model_flux(x, param):
     lbdBrg = param["lbdBrg"]
     sigBrg = param["sigBrg"]
     lF = param["lF"]
-    y = lF * np.exp(-0.5 * (x - lbdBrg) ** 2 / sigBrg ** 2)
+    y = lF * np.exp(-0.5 * (x - lbdBrg) ** 2 / sigBrg**2)
     return y
 
 
 def fit_flc_spectra(
     data,
-    lbdBrg=2.1661,
-    wBrg=0.0005,
+    wl0=2.1661,
+    fwhm0=0.0005,
     r_brg=3,
     red_abs=False,
     err_cont=True,
     verbose=False,
+    display=False,
+    norm=True,
+    use_model=True,
+    tellu=False,
 ):
-    """Fit the spectral line of GRAVITY (`lbdBrg`) and return the line to
+    """
+    Fit the spectral line of GRAVITY (`lbdBrg`) and return the fitted line to
     continuum ratio `F_lc` (used for pure line visibility computation).
 
-    Parameters:
-    -----------
-    `data` {dict}: Class-like object containing the oifits data from
-    oimalib.load(). Generaly, the flc is computed from an averaged dataset using
-    oimalib.temporal_bin_data(),\n
-    `lbdBrg` {float}: Central wavelength position [µm],\n
-    `wBrg` {float}: width of the line [µm],\n
-    `r_brg` {float}: number of `wBrg` used to determine the in line region.\n
+    Parameters
+    ----------
+
+    `data` : {dict}
+        Class-like object containing the oifits data from
+        oimalib.load(). Generaly, the flc is computed from an averaged dataset using
+        oimalib.temporal_bin_data(),\n
+    `lbdBrg` : {float}
+        Central wavelength position (initial) [µm],\n
+    `wBrg` : {float}
+        Width of the line (initial) [µm],\n
+    `r_brg` : {float}
+        Number of `wBrg` used to determine the in-line region,\n
+    `err_cont` : {bool}
+        If True, the continuum is used as error.
 
     Returns:
     -----------
-    `flc` {dict}: dictionnary with `flux` (normalized), `e_flux`, wavelength (`wl` in [µm]), the
-    gaussian fit of the flux (`F_lc`), the fit parameters (`fit`), boolean array
-    containing the continuum region (`inCont`) and in line region (`inLine`).
+    `flc`: {dict}
+        dictionnary with `flux` (normalized), `e_flux`, wavelength (`wl` in [µm]), the
+        gaussian fit of the flux (`F_lc`), the fit parameters (`fit`), boolean array
+        containing the continuum region (`inCont`) and in line region (`inLine`).
 
     """
     flux = data.flux
     wl = data.wl * 1e6  # to be in µm
 
     # Select region of the continuum (avoiding the BrG line)
-    inCont = (np.abs(wl - lbdBrg) < 0.1) * (np.abs(wl - lbdBrg) > 0.004)
-    inLine = np.abs(wl - lbdBrg) < r_brg * wBrg
+    inCont = (np.abs(wl - wl0) < 0.1) * (np.abs(wl - wl0) > 0.003)
 
     # Normalize the flux to 1
-    oimalib.tools.normalize_continuum(flux, wl, inCont)
+    if norm:
+        oimalib.tools.normalize_continuum(flux, wl, inCont)
+
     if err_cont:
         e_flux = np.std(flux[inCont])
     else:
-        e_flux = 0.01 * flux.max()
+        e_flux = 0.001 * flux.max()
 
-    Y = flux[inLine] - 1  # Shift to zero for gaussian fit
-    X = wl[inLine]
+    Y = flux - 1  # Shift to zero for gaussian fit
+    X = wl
 
     err = np.ones(len(Y)) * e_flux
     if not red_abs:
-        param = {"lbdBrg": lbdBrg, "sigBrg": wBrg, "lF": 0.4}
+        param = {"lbdBrg": wl0, "sigBrg": fwhm0, "lF": 0.4}
         name_model = model_flux
     else:
         param = {
-            "p1": lbdBrg,
-            "w1": wBrg,
-            "a1": 0.4,
-            "p2": lbdBrg + wBrg,
-            "w2": wBrg / 6.0,
-            "a2": -0.1,
+            "p1": wl0,
+            "w1": fwhm0 / 2.0,
+            "a1": 0.6,
+            "p2": wl0 + fwhm0,
+            "w2": fwhm0 / 2.0,
+            "a2": -0.2,
         }
         name_model = model_flux_red_abs
 
-    fit = oimalib.fitting.leastsqFit(name_model, X, param, Y, err=err, verbose=verbose)
-    F_lc = name_model(wl, fit["best"]) + 1
+    fit = oimalib.fitting.leastsqFit(
+        name_model,
+        X,
+        param,
+        Y,
+        err=err,
+        verbose=verbose,
+    )
+    if use_model:
+        F_lc = name_model(wl, fit["best"]) + 1
+    else:
+        F_lc = flux
+
+    best_param = fit["best"]
+    if not red_abs:
+        restframe = best_param["lbdBrg"]
+        wBrg = 2.355 * best_param["sigBrg"]
+        lcr = 1 + best_param["lF"]
+    else:
+        restframe = best_param["p1"]
+        wBrg = 2.355 * best_param["w1"]
+        lcr = 1 + best_param["a1"]
+
+    inLine = np.abs(wl - restframe) < r_brg * wBrg / 2.0
+    inCont = (np.abs(wl - restframe) < 0.1) * (np.abs(wl - restframe) > 1.8 * wBrg)
+
+    wl_model = np.linspace(wl[0], wl[-1], 1000)
+    flux_model = name_model(wl_model, fit["best"]) + 1
+
+    if display:
+        plt.figure(figsize=(8, 5))
+        plt.scatter(
+            X[inLine],
+            Y[inLine] + 1,
+            c=X[inLine],
+            cmap="coolwarm",
+            s=40,
+            edgecolors="k",
+            linewidth=0.5,
+            marker="s",
+            zorder=3,
+        )
+        plt.axhline(lcr, color="#b4c1d0", ls=":", alpha=1)
+        plt.text(
+            restframe - 2.9 * wBrg,
+            lcr - 0.02,
+            "LCR = %2.2f" % lcr,
+            ha="left",
+            va="top",
+            color="#b4c1d0",
+            alpha=1,
+        )
+        plt.errorbar(
+            wl[~inCont],
+            flux[~inCont],
+            yerr=e_flux,
+            color="tab:blue",
+            ms=9,
+            **err_pts_style_f,
+        )
+        plt.errorbar(
+            wl[inCont],
+            flux[inCont],
+            yerr=e_flux,
+            color="tab:red",
+            ms=9,
+            **err_pts_style_f,
+        )
+        plt.axhline(1, lw=2, color="gray", alpha=0.2)
+        plt.axhline(1 - e_flux, lw=2, color="crimson", alpha=0.5, ls="--")
+        plt.axhline(1 + e_flux, lw=2, color="crimson", alpha=0.5, ls="--")
+        plt.xlim(restframe - 5 * wBrg, restframe + 5 * wBrg)
+        plt.axvspan(
+            restframe - wBrg / 2,
+            restframe + wBrg / 2.0,
+            zorder=1,
+            alpha=0.2,
+            label="$w$=%2.4f µm" % wBrg,
+        )
+        plt.axvline(
+            restframe,
+            c="tab:blue",
+            alpha=0.5,
+            lw=1,
+            label=r"$\lambda_{0}$=%2.4f µm" % restframe,
+        )
+        tellu_pos = [
+            2.15909,
+            2.1599,
+            2.16105,
+            2.163446,
+            2.166853,
+            2.168645,
+            2.17265,
+            2.1744571,
+        ]
+        if tellu:
+            for x in tellu_pos:
+                plt.axvline(x, color="g", lw=1, alpha=0.1)
+
+        plt.plot(wl_model, flux_model, alpha=0.5)
+        plt.legend(loc=1, fontsize=14)
+        plt.xlabel("Wavelength [µm]")
+        plt.ylabel("Norm. Flux")
+        plt.tight_layout(pad=1.01)
+        plt.show(block=False)
+
     flc = {
         "flux": flux,
         "wl": wl,
@@ -1196,6 +1471,10 @@ def fit_flc_spectra(
         "inCont": inCont,
         "inLine": inLine,
         "red_abs": red_abs,
+        "widthline": wBrg,
+        "restframe": restframe,
+        "wl_model": wl_model,
+        "flux_model": flux_model,
     }
     return flc
 
@@ -1260,6 +1539,8 @@ def fit_pc_shift(output_pco, p=0.05):
         "fit_param": l_fit,
         "wl": output_pco["wl"],
         "wl_line": wl_line,
+        "restframe": output_pco["restframe"],
+        # "cond": output_pco["cond_positivity"],
     }
     return pcs
 
@@ -1269,7 +1550,7 @@ def model_1dgauss_offset(x, param):
     sigma = param["sigma"]
     A = param["A"]
     B = param["B"]
-    y = ((A * np.exp(-0.5 * (x - pos) ** 2 / sigma ** 2)) + 1) - (1 - B)
+    y = ((A * np.exp(-0.5 * (x - pos) ** 2 / sigma**2)) + 1) - (1 - B)
     return y
 
 
@@ -1283,58 +1564,106 @@ def model_1dgauss_offset_double(x, param):
     C = param.get("C", 0)
     posA = pos - dp
     posB = pos + dp
-    y1 = A * np.exp(-((x - posA) ** 2) / (2 * sigmaA ** 2))
-    y2 = B * np.exp(-((x - posB) ** 2) / (2 * sigmaB ** 2))
+    y1 = A * np.exp(-((x - posA) ** 2) / (2 * sigmaA**2))
+    y2 = B * np.exp(-((x - posB) ** 2) / (2 * sigmaB**2))
     y = y1 + y2 + C
-    if (sigmaA >= 0.0015 / 2.355) or (sigmaB > 0.0015 / 2.355):
-        y = [np.nan] * len(y)
+    # if (sigmaA >= 0.0015 / 2.355) or (sigmaB > 0.0015 / 2.355):
+    #     y = [np.nan] * len(y)
     return y
 
 
-def perform_fit_dvis(wl, dvis, e_dvis, param, double=False):
+def perform_fit_dvis(wl, dvis, e_dvis, param, double=False, inCont=None, display=False):
     fitOnly = None
     if not double:
-        fitOnly = ["A", "sigmaA", "pos", "C"]
+        fitOnly = ["A", "sigmaA", "C", "pos"]
         param["B"] = 0
 
     chi2_tmp = 1e50
-    l_sigma = np.array([0.0001, 0.0005, 0.001]) / 2.355
+    np.array([0.0001, 0.0005, 0.001]) / 2.355
 
-    for x in l_sigma:
-        param["sigmaA"] = x
-        fit = oimalib.fitting.leastsqFit(
-            model_1dgauss_offset_double,
-            wl,
-            param,
-            dvis,
-            err=e_dvis,
-            fitOnly=fitOnly,
-            verbose=True,
+    if inCont is None:
+        inCont = np.array([False] * len(wl))
+
+    initial_guess = model_1dgauss_offset_double(wl, param)
+    if display:
+        plt.figure(figsize=(7, 4))
+        plt.xlabel("Wavelength [µm]")
+        plt.ylabel("Amp. Vis.")
+        plt.errorbar(
+            wl[~inCont],
+            dvis[~inCont],
+            yerr=e_dvis[~inCont],
+            label="Data",
+            **err_pts_style,
         )
-        chi2 = fit["chi2"]
-        if not np.isnan(chi2):
-            if chi2 < chi2_tmp:
-                fit_best = fit
-                chi2_tmp = chi2
+        plt.errorbar(
+            wl[inCont],
+            dvis[inCont],
+            yerr=e_dvis[inCont],
+            color="darkorange",
+            **err_pts_style,
+        )
+        plt.plot(wl, initial_guess, lw=1, label="Initial guess")
+        plt.legend(loc="best")
+        plt.tight_layout()
+        plt.show(block=False)
 
-    mod_dvis = model_1dgauss_offset_double(wl, fit_best["best"])
+    fit = oimalib.fitting.leastsqFit(
+        model_1dgauss_offset_double,
+        wl[~inCont],
+        param,
+        dvis[~inCont],
+        err=e_dvis[~inCont],
+        fitOnly=fitOnly,
+        verbose=False,
+    )
+    chi2 = fit["chi2"]
+    if not np.isnan(chi2):
+        if chi2 < chi2_tmp:
+            fit_best = fit
+            chi2_tmp = chi2
+
+    try:
+        mod_dvis = model_1dgauss_offset_double(wl, fit_best["best"])
+    except UnboundLocalError:
+        mod_dvis = None
+        fit_best = None
     return mod_dvis, fit_best
 
 
-def perform_fit_dphi(wl, dphi, e_dphi, param, double=True):
+def perform_fit_dphi(
+    wl, dphi, e_dphi, param, inCont=None, double=True, display=False, verbose=False
+):
     fitOnly = None
     if not double:
         fitOnly = ["A", "sigmaA", "pos"]
         param["B"] = 0
+    # fitOnly = ["A", "sigmaA", "pos", "dp"]
+
+    dphi_mod = dphi.copy()
+    initial_guess = model_1dgauss_offset_double(wl, param)
+    if inCont is None:
+        inCont = np.array([True] * len(wl))
+    dphi_mod[~inCont] = 0
+
+    if display:
+        plt.figure(figsize=(7, 4))
+        plt.xlabel("Wavelength [µm]")
+        plt.ylabel("Phase Vis.")
+        plt.errorbar(wl, dphi, yerr=e_dphi, label="Data", **err_pts_style)
+        plt.plot(wl, initial_guess, lw=1, label="Initial guess")
+        plt.legend(loc="best")
+        plt.tight_layout()
+        plt.show(block=False)
 
     fit = oimalib.fitting.leastsqFit(
         model_1dgauss_offset_double,
         wl,
         param,
-        dphi,
+        dphi_mod,
         err=e_dphi,
         fitOnly=fitOnly,
-        verbose=False,
+        verbose=verbose,
     )
     mod_dphi = model_1dgauss_offset_double(wl, fit["best"])
     return mod_dphi, fit
