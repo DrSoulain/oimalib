@@ -65,7 +65,10 @@ def test_plot_dvis(example_oifits_rgrav):
 def test_fail_load(example_oifits_grav, capsys):
     d = oimalib.load(example_oifits_grav, simu=False)
     captured = capsys.readouterr()
-    txt_error = "Your dataset seems to be a simulation (from aspro2), you should add simu=True.\n"
+    txt_error = (
+        "Your dataset seems to be a simulation (from aspro2), you should"
+        + "add simu=True.\n"
+    )
     assert d is None
     assert captured.err == txt_error
 

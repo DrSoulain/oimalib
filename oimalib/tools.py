@@ -5,6 +5,7 @@ Created on Wed Aug  7 16:31:48 2019
 @author: asoulain
 """
 import math
+import pickle
 from bisect import bisect_left
 from bisect import insort
 from collections import deque
@@ -18,8 +19,21 @@ from uncertainties import umath
 from uncertainties import unumpy
 
 
+def decompress_pickle(file):
+    pikd = open(file, "rb")
+    data = pickle.load(pikd)
+    pikd.close()
+    return data
+
+
+def compressed_pickle(title, data):
+    pikd = open(title + ".dpy", "wb")
+    pickle.dump(data, pikd, 4)
+    pikd.close()
+
+
 def cart2pol(x, y):
-    rho = np.sqrt(x ** 2 + y ** 2)
+    rho = np.sqrt(x**2 + y**2)
     phi = np.arctan2(x, y)
     if np.rad2deg(phi) < 0:
         phi_deg = 360 + np.rad2deg(phi)
@@ -41,7 +55,7 @@ def norm(tab):
 
 def rad2mas(rad):
     """Convert angle in radians to milli arc-sec."""
-    mas = rad * (3600.0 * 180 / np.pi) * 10.0 ** 3
+    mas = rad * (3600.0 * 180 / np.pi) * 10.0**3
     return mas
 
 
@@ -98,11 +112,11 @@ def planck_law(T, wl, norm=False):
     c = cs.c.value
     k = cs.k_B.value
     sigma = cs.sigma_sb.value
-    P = (4 * np.pi ** 2) * sigma * T ** 4
+    P = (4 * np.pi**2) * sigma * T**4
 
     # print(T, wl)
     B = (
-        (2 * h * c ** 2 * wl ** -5) / (np.exp(h * c / (wl * k * T)) - 1)
+        (2 * h * c**2 * wl**-5) / (np.exp(h * c / (wl * k * T)) - 1)
     ) / 1e6  # W/m2/micron
     if norm:
         res = B / P  # kW/m2/sr/m
@@ -170,7 +184,7 @@ def nan_interp(yall):
         yall[nans] = np.interp(x(nans), x(~nans), yall[~nans])
 
 
-def normalize_continuum(yall, wave, inCont, degree=3, phase=False):
+def normalize_continuum(yall, wave, inCont, degree=3, phase=False, plot=False):
     """
     data                          shape: [nbase,nwave]
     wave in [um]                  shape: [nwave]
@@ -188,9 +202,18 @@ def normalize_continuum(yall, wave, inCont, degree=3, phase=False):
         x = wave - np.mean(wave)
         # Fit continuum and remove fit
         if phase:
+            if plot:
+                plt.figure()
+                plt.plot(x[inCont], yall[inCont], "r.", alpha=0.5)
+                plt.plot(x, yall, color="tab:blue", alpha=0.5)
+                plt.plot(x, np.polyval(np.polyfit(x[inCont], yall[inCont], degree), x))
+                plt.plot(
+                    x, yall - np.polyval(np.polyfit(x[inCont], yall[inCont], degree), x)
+                )
             yall -= np.polyval(np.polyfit(x[inCont], yall[inCont], degree), x)
         else:
             yall /= np.polyval(np.polyfit(x[inCont], yall[inCont], degree), x)
+    return yall
 
 
 def substract_run_med(spectrum, wave=None, n_box=50, shift_wl=0, div=False):
@@ -239,7 +262,7 @@ def apply_windowing(img, window=80, m=3):
     xx2 = xx - isz // 2
     yy2 = isz // 2 - yy
     # Distance map
-    distance = np.sqrt(xx2 ** 2 + yy2[:, np.newaxis] ** 2)
+    distance = np.sqrt(xx2**2 + yy2[:, np.newaxis] ** 2)
 
     # Super-gaussian windowing
     window = super_gaussian(distance, sigma=window * 2, m=m)
@@ -255,7 +278,6 @@ def wtmn(values, weights, axis=0, cons=False):
 
     values, weights -- Numpy ndarrays with the same shape.
     """
-
     values[np.isnan(values)] = 0.0
     try:
         weights[np.isnan(values)] = 0.0
@@ -268,11 +290,12 @@ def wtmn(values, weights, axis=0, cons=False):
     variance = np.average((values - mn) ** 2, weights=weights, axis=axis)
 
     std = np.sqrt(variance)
+    std_err = std / (np.shape(values)[0]) ** 0.5
+
     if not cons:
-        std_unbias = std / np.sqrt(len(weights))
+        std_unbias = std_err
     else:
         std_unbias = std
-
     return (mn, std_unbias)
 
 
@@ -282,7 +305,7 @@ def find_nearest(array, value):
     return idx
 
 
-def binning_tab(data, nbox=50, force=False, rel_err=0.01):
+def binning_tab(data, nbox=50, force=False, rel_err=0.01, *, cons=False):
     """Compute spectrally binned observables using weigthed averages (based
     on squared uncertainties).
 
@@ -341,9 +364,15 @@ def binning_tab(data, nbox=50, force=False, rel_err=0.01):
                     weigths = 1.0 / range_e_vis2[cond_flag_vis2] ** 2
                     weigth_dvis = 1.0 / range_e_dvis[cond_flag_vis2] ** 2
                     weigth_dphi = 1.0 / range_e_dphi[cond_flag_vis2] ** 2
-                    vis2_med, e_vis2_med = wtmn(range_vis2[cond_flag_vis2], weigths)
-                    dvis_med, e_dvis_med = wtmn(range_dvis[cond_flag_vis2], weigth_dvis)
-                    dphi_med, e_dphi_med = wtmn(range_dphi[cond_flag_vis2], weigth_dphi)
+                    vis2_med, e_vis2_med = wtmn(
+                        range_vis2[cond_flag_vis2], weigths, cons=cons
+                    )
+                    dvis_med, e_dvis_med = wtmn(
+                        range_dvis[cond_flag_vis2], weigth_dvis, cons=cons
+                    )
+                    dphi_med, e_dphi_med = wtmn(
+                        range_dphi[cond_flag_vis2], weigth_dphi, cons=cons
+                    )
                 else:
                     vis2_med, e_vis2_med = np.nan, np.nan
                     dvis_med, e_dvis_med = np.nan, np.nan
@@ -365,7 +394,11 @@ def binning_tab(data, nbox=50, force=False, rel_err=0.01):
                 cond_flag_cp = ~flag_cp[k][i:ind]
                 if len(range_cp[cond_flag_cp]) != 0:
                     weigths_cp = 1.0 / range_e_cp[cond_flag_cp] ** 2
-                    cp_med, e_cp_med = wtmn(range_cp[cond_flag_cp], weigths_cp)
+                    cp_med, e_cp_med = wtmn(
+                        range_cp[cond_flag_cp],
+                        weigths_cp,
+                        cons=cons,
+                    )
                 else:
                     cp_med, e_cp_med = np.nan, np.nan
                 i_cp.append(cp_med)
@@ -402,7 +435,7 @@ def computeBinaryRatio(param, wl):
     """
     T_Wr = param["T_WR"]
     T_ob = param["T_OB"]
-    sig_Teff = T_Wr ** 4 / T_ob ** 4
+    sig_Teff = T_Wr**4 / T_ob**4
 
     L_ratio = param["L_WR/O"]
 
@@ -500,3 +533,303 @@ def combine_dphi_aspro_file(d, ibl, n_per_hour=6, hour=3, cons=False):
     l_e_dphi = np.array(l_e_dphi)
     dphi_aver, e_dphi_aver = wtmn(l_dphi, weights=l_e_dphi, cons=cons)
     return dphi_aver, e_dphi_aver
+
+
+deg2rad = np.pi / 180.0
+rad2deg = 1.0 / deg2rad
+
+
+def get_mis(inc_in=None, pa_in=None, inc_out=None, pa_out=None):
+    """
+    calculates the misalignment angle between the inner and outer disk [radian]
+
+    Parameters
+    ----------
+    inc_in          : float
+                      Inclination angle of the inner disk [radian]
+
+    pa_in           : float
+                      Position angle of the inner disk [radian]
+
+    inc_out         : float
+                      Inclination angle of the outer disk [radian]
+
+    pa_out          : float
+                      Position angle of the outer disk [radian]
+    """
+    cos_mis = np.sin(inc_in) * np.sin(inc_out) * np.cos(pa_in - pa_out) + np.cos(
+        inc_in
+    ) * np.cos(inc_out)
+    mis = np.arccos(cos_mis)
+
+    return mis
+
+
+def get_shadow_pa(inc_in=None, pa_in=None, inc_out=None, pa_out=None):
+    """
+    calculates the position angleof the shadows
+
+    Parameters
+    ----------
+    inc_in          : float
+                      Inclination angle of the inner disk [radian]
+
+    pa_in           : float
+                      Position angle of the inner disk [radian]
+
+    inc_out         : float
+                      Inclination angle of the outer disk [radian]
+
+    pa_out          : float
+                      Position angle of the outer disk [radian]
+    """
+    ax = np.sin(inc_in) * np.cos(inc_out) * np.cos(pa_in) - np.cos(inc_in) * np.sin(
+        inc_out
+    ) * np.cos(pa_out)
+    ay = np.sin(inc_in) * np.cos(inc_out) * np.sin(pa_in) - np.cos(inc_in) * np.sin(
+        inc_out
+    ) * np.sin(pa_out)
+    return np.arctan2(ay, ax) + np.pi
+
+
+def get_shadow_x(inc_in=None, pa_in=None, inc_out=None, pa_out=None, h=None):
+    """
+    calculates the position angleof the shadows
+
+    Parameters
+    ----------
+    inc_in          : float
+                      Inclination angle of the inner disk [radian]
+
+    pa_in           : float
+                      Position angle of the inner disk [radian]
+
+    inc_out         : float
+                      Inclination angle of the outer disk [radian]
+
+    pa_out          : float
+                      Position angle of the outer disk [radian]
+    h               : float
+                      Height of the scattering surface [au]
+    """
+    x = (
+        h
+        * np.cos(inc_in)
+        / (
+            np.cos(inc_out) * np.sin(inc_in) * np.sin(pa_in)
+            - np.cos(inc_in) * np.sin(inc_out) * np.sin(pa_out)
+        )
+    )
+    return x
+
+
+def get_misalignment(
+    i_in,
+    i_out,
+    pa_in,
+    pa_out,
+    e_i_in=0,
+    e_i_out=0,
+    e_pa_in=0,
+    e_pa_out=0,
+    *,
+    Rout=None,
+    h=None,
+):
+    """Compute the misalignement angle and the line connecting the two
+    projected shadow."""
+    from uncertainties import ufloat, unumpy
+
+    # Orientation angle of inner and outer disks
+
+    i1 = ufloat(i_in, e_i_in) * np.pi / 180.0
+    i2 = ufloat(-i_in, e_i_in) * np.pi / 180.0
+
+    inc_in = np.array([i1, i2])
+    inc_out = ufloat(i_out, e_i_out) * np.pi / 180.0
+
+    pa_in = ufloat(pa_in, e_pa_in) * np.pi / 180.0
+    pa_out = ufloat(pa_out, e_pa_out) * np.pi / 180.0
+
+    cos_mis = unumpy.sin(inc_in) * unumpy.sin(inc_out) * unumpy.cos(
+        pa_in - pa_out
+    ) + unumpy.cos(inc_in) * unumpy.cos(inc_out)
+
+    mis = unumpy.arccos(cos_mis) * 180 / np.pi
+    misa = unumpy.arccos(cos_mis)
+
+    # Line of shadow
+    y = unumpy.sin(inc_in) * unumpy.cos(inc_out) * unumpy.sin(pa_in) - unumpy.cos(
+        inc_in
+    ) * unumpy.sin(inc_out) * unumpy.sin(pa_out)
+    x = unumpy.sin(inc_in) * unumpy.cos(inc_out) * unumpy.cos(pa_in) - unumpy.cos(
+        inc_in
+    ) * unumpy.sin(inc_out) * unumpy.cos(pa_out)
+    pa_shadow = unumpy.arctan2(y, x) * 180 / np.pi
+    pa_shadow[pa_shadow < 0] = 180 + pa_shadow[pa_shadow < 0]
+
+    # Offset
+    offset_dec = None
+    if Rout is not None:
+        offset_dec = 2 * np.arctan(np.sqrt((np.tan(misa) ** 2 / (h / Rout) ** 2) - 1.0))
+
+    print("\nMisalignment results:")
+    print("---------------------")
+    print("mis =", mis[0], "deg or", mis[1], " deg (for -i_in)")
+    print("pa shadow =", pa_shadow[0], "deg or", pa_shadow[1], "deg (for -i_in)")
+
+    return mis, pa_shadow, offset_dec
+
+
+def compute_yso_carac(
+    B, rs, ms, ls, rbrg=5, mdot=None, P=9, magK=5, ew=None, d=160.3, Tsub=1500, Q=None
+):
+    """Compute the caracteristic radius of YSO. Truncation radius and
+    corotation radius.
+
+    Parameters:
+    -----------
+    `B` {float}: Magnetic field [kG],\n
+    `rs` {float}: Stellar radius [r_sun],\n
+    `ms` {float}: Stellar mass [m_sun],\n
+    `mdot` {float}: Mass accretion rate [m_sun/yr],\n
+    `P` {float}: Rotational period [days].
+
+    Outputs:
+    --------
+    `r_tr` {float}: Truncation radius [with units],\n
+    `r_co` {float}: Corotation radius [with units],\n
+    """
+    from astropy import constants as cons
+    from astropy import units as u
+    from astools.phot import MagToJy, fluxToJy
+
+    if isinstance(B, list):
+        B = np.array(B)
+
+    R2 = rs / 2.0
+    M05 = ms / 0.5
+
+    P = P * u.d
+    omega = 2 * np.pi / P.to(u.s)
+    r_co = (cons.G * ms * cons.M_sun / (omega**2)) ** (1 / 3.0)
+
+    unit_flux = u.W / u.m**2 / u.micron
+    fjy = MagToJy(magK, "K")  # Jy
+    # alpha = 1 used to convert flux in W/m2/µm
+    fk = fluxToJy(fjy, 2.159e-6, alpha=1, reverse=True) * unit_flux
+
+    from uncertainties import ufloat
+
+    d = d * u.pc
+    ew = ew * u.micron
+    Lk = ew * fk * 4 * np.pi * (d.to(u.m) ** 2)
+    Lk_sun = Lk.to(u.L_sun)
+
+    # Uncertainties
+    uew = ufloat(ew.value, ew.value * 0.05)
+    print(f"EW = {uew*1e-6*1e10}")
+    err_d = 0.4 * u.pc
+    ud = ufloat(d.to(u.m).value, err_d.to(u.m).value)
+    ulk = uew * fk.value * 4 * np.pi * ud**2
+
+    ulk_sun = ulk / cons.L_sun.value
+
+    rs = rs * u.R_sun
+    ms = ms * u.M_sun
+    a = 1.16
+    b = 3.6
+    Lacc = 10 ** (a * np.log10(Lk_sun.value) + b) * u.L_sun
+
+    new_alcala = True
+    if not new_alcala:
+        ua = ufloat(1.16, 0.07)  # ufloat(1.19, 0.10) alcala+17
+        ub = ufloat(3.6, 0.38)
+    else:
+        ua = ufloat(1.19, 0.10)  # alcala+17
+        ub = ufloat(4.02, 0.51)  # alcala+17
+
+    uLacc = 10 ** (ua * umath.log10(ulk_sun) + ub)
+    uLacc_w = uLacc * cons.L_sun
+
+    Macc = 1.25 * Lacc.to(u.W) * rs.to(u.m) / (cons.G * ms.to(u.kg))
+    Macc = Macc.to(u.M_sun / u.year)
+
+    urs = ufloat(rs.to(u.m).value, 0.15 * rs.to(u.m).value)
+    ums = ufloat(ms.to(u.kg).value, 0.0222 * ms.to(u.kg).value)
+    ums2 = ufloat(ms.value, 0.0222 * ms.value)
+
+    uP = ufloat(P.to(u.s).value, 0.00555 * P.to(u.s).value)
+    uomega = 2 * np.pi / uP
+
+    ur_co = (cons.G * ums2 * cons.M_sun / uomega**2) ** (1 / 3.0) / cons.au.value
+
+    urbrg = ufloat(rbrg, 1)
+    uMacc = (1 - (1 / urbrg)) ** -1 * uLacc_w.value * urs / (cons.G.value * ums)
+
+    uMacc_si = uMacc / cons.M_sun.value * 60 * 60 * 24 * 365.25
+
+    log_umacc = umath.log10(uMacc_si)
+
+    m = round(10 ** (log_umacc.nominal_value) / 1e-8, 1)
+    minf = 10 ** (log_umacc.nominal_value - log_umacc.std_dev) / 1e-8
+    msup = 10 ** (log_umacc.nominal_value + log_umacc.std_dev) / 1e-8
+    err_sup = round(msup - m, 1)
+    err_inf = round(m - minf, 1)
+
+    print("\nMass accretion rate:")
+    print("--------------------")
+    print(f"flux = {fjy:2.3f} Jy ({fk.value:2.1e} W/m2/µm)")
+    print(f"Lline = {ulk} W ({ulk_sun*1e4} Lsun)")
+    print(f"Lacc = {uLacc} Lsun")
+    print(f"Macc = {uMacc_si} Msun/yr (log(Macc) = {log_umacc})")
+    print(f"Macc = {m}^+{err_sup}_-{err_inf} Msun/yr (log(Macc) = {log_umacc})")
+
+    if mdot is not None:
+        Mdot8 = mdot / 1e-8
+    else:
+        Mdot8 = Macc.value / 1e-8
+
+    r_tr = (
+        12.6 * (B ** (4 / 7) * R2 ** (12.0 / 7)) / (M05 ** (1 / 7) * Mdot8 ** (2 / 7))
+    )
+
+    urs2 = ufloat(rs.value, 0.15 * rs.value)
+    ums2 = ufloat(ms.value, 0.1111 * ms.value)
+
+    uB = ufloat(B, 0.0 * B)
+    uR2 = urs2 / 2.0
+    uM05 = ums2 / 0.5
+    uMdot8 = uMacc_si / 1e-8
+
+    ur_tr = (
+        12.6
+        * (uB ** (4 / 7) * uR2 ** (12.0 / 7))
+        / (uM05 ** (1 / 7) * uMdot8 ** (2 / 7))
+    )
+
+    ur_tr_rstar = ur_tr / urs2
+    ur_tr_au = ur_tr * cons.R_sun.to(u.au).value
+
+    r_co = np.round(r_co.to(u.au).value, 2) * u.au
+    r_tr = r_tr * cons.R_sun
+
+    r_tr = np.round(r_tr.to(u.au), 3)
+
+    r_co_star = np.round(r_co / rs.to(u.au), 1)
+
+    urs_au = ufloat(rs.to(u.au).value, 0.15 * rs.to(u.au).value)
+
+    r_co_star = ur_co / urs_au
+
+    if Q is None:
+        Q = np.array([1, 4])
+    r_sub = np.round(1.1 * np.sqrt(Q) * np.sqrt(ls / 1000.0) * (1500 / Tsub) ** 2, 2)
+    r_sub_star = np.round(r_sub / rs.to(u.au).value, 1)
+    print("\nCaracteristic radii:")
+    print("--------------------")
+    print(f"R_tr = {ur_tr_au} = {ur_tr_rstar} R*")
+    print(f"R_co = {ur_co.value} = {r_co_star.value} R*")
+    print(f"R_sub = {r_sub} AU = {r_sub_star} R*")
+
+    return ur_tr_au, ur_co.value, r_sub, Macc
