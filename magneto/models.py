@@ -2,31 +2,59 @@ import numpy as np
 import seaborn as sns
 from astropy.io import fits
 from matplotlib import pyplot as plt
+from scipy import optimize
 
-from magneto.tools import contvis, pldp, plvis, totflux, totphase, totvis
+from magneto.alex import (
+    contvis,
+    cube_interpolator,
+    pcshift,
+    pldp,
+    plvis,
+    shiftfit,
+    totflux,
+    totphase,
+    totvis,
+)
+from magneto.fitting import fit_multi_size
+
+
+class Model_Light:
+    def __init__(self):
+        return None
 
 
 class Model:
-    """Class to read MCFOST model. It creates the model class with all the information
-    needed to extract observables. The distance can be defined as `distance` in
-    pc. `res` is the spectral resolution of your favorite instrument (60 km/s for
-    GRAVITY), which is used to compute the kernel value (for convolution)."""
+    """This class is designed to read an MCFOST model and create a model class with
+    all the necessary information to extract interferometric observables.
 
-    def __init__(self, filename, distance=1, res=60):
-        """"""
+    Parameters:
+    -----------
+    `filename` {str}:
+        Name of the model file,\n
+    `mparam` {dict}:
+        Parameters dictionnary obtained from the readme file. See
+        magneto.mcfost.get_model_file() for details,\n
+    `distance` {float}:
+        Distance in parsec (defautl: 1),\n
+    `res` {float}:
+        Spectral resolution in km/s (default: 60 (GRAVITY)).
+    """
+
+    def __init__(self, filename, mparam, distance=1, res=75):
         self.filename = filename
 
         hdu = fits.open(filename)
 
-        n_az = hdu[0].header["NAXIS5"]
-        n_incl = hdu[0].header["NAXIS4"]
+        self.param = mparam
+
+        n_az = hdu[0].header.get("NAXIS5", 1)
+        n_incl = hdu[0].header.get("NAXIS4", 1)
         self.nz = n_az
         self.nincl = n_incl
 
-        nx = hdu[0].header["NAXIS1"]  # nx
+        nx = hdu[0].header["NAXIS1"]
         self.nx = nx
-        # ny = lines[0].header["NAXIS2"]
-        nwl = hdu[0].header["NAXIS3"]  # nlam_max
+        nwl = hdu[0].header["NAXIS3"]
         self.nwl = nwl
 
         pixscale = hdu[0].header["CDELT2"] * 3600.0 * distance  # AU per pixel
@@ -34,6 +62,7 @@ class Model:
 
         self.pixscale = pixscale
         self.pixdeg = pixdeg
+        self.distance = distance
 
         # Compute the field of view in AU
         halfsize = np.asarray([nx // 2, nx // 2]) * pixscale
@@ -62,11 +91,14 @@ class Model:
         self.vel = vel
 
     def compute_lcr(self, avgrange=5, display=True):
-        """Extract and normalize the line to continuum ratio."""
+        """Extract and normalize the line to the continuum ratio. `avgrange` is the
+        index range from the first (and last) item of the flux table to compute
+        the left (and right) continuum values."""
         sns.set_context("talk", font_scale=1)
-        F2 = np.sum(
-            self.cube, axis=(2, 3)
-        )  # Total flux of the image per wavelength and inclination
+
+        # Total flux of the image per wavelength and inclination
+        F2 = np.sum(self.cube, axis=(2, 3))
+
         self.totflux = F2
         # Average continuum left
         contflux1 = np.average(F2[:, 0:avgrange], axis=1)
@@ -82,7 +114,8 @@ class Model:
                 [F2[n, k] / contflux[n] for k in range(len(F2[0, :]))]
                 for n in range(len(F2[:, 0]))
             ]
-        )  # Total line to continuum ratio per wavelength and inclination.
+        )
+        # Total line to continuum ratio per wavelength and inclination.
         self.fluxrat = fluxrat
 
         if display:
@@ -98,9 +131,9 @@ class Model:
         """Build array coordinates and rotate (if any)."""
         if pa is None:
             pa = [0]
-        from magneto.tools import shiftcomp
+        from magneto.alex import shiftcomp
 
-        if (type(pa) is float) or (type(pa) is int):
+        if isinstance(pa, (float, int)):
             pa = [pa]
 
         if len(pa) != 1:
@@ -285,7 +318,7 @@ class Model:
         # Interpolate the convolved observables on the new wave grid.
         fct_fluxrat = np.array(
             [
-                interp1d(self.waves, self.fluxrat[n, :], kind="cubic")
+                interp1d(self.waves, self.fluxrat[n, :], kind=kind)
                 for n in range(self.nincl)
             ]
         )
@@ -294,7 +327,7 @@ class Model:
             [
                 [
                     [
-                        interp1d(self.waves, self.visamp[pa, bl, inc, :], kind="cubic")
+                        interp1d(self.waves, self.visamp[pa, bl, inc, :], kind=kind)
                         for inc in range(self.nincl)
                     ]
                     for bl in range(self.nbl)
@@ -307,7 +340,7 @@ class Model:
             [
                 [
                     [
-                        interp1d(self.waves, self.visphi[pa, bl, inc, :], kind="cubic")
+                        interp1d(self.waves, self.visphi[pa, bl, inc, :], kind=kind)
                         for inc in range(self.nincl)
                     ]
                     for bl in range(self.nbl)
@@ -350,8 +383,20 @@ class Model:
 
     def add_disk(self, disk_size, f_c, f_h, incl):
         """Add the contribution of the disk in the visibility amplitude, phase
-        and fluxes."""
-        if type(incl) is float or int:
+        and fluxes.
+
+        Parameters:
+        -----------
+        `disk_size` {list}:
+            Disk radius [radian],\n
+        `f_c` {list}:
+            Relative contribution of the disk,\n
+        `f_h` {list}:
+            Relative contribution of the halo,\n
+        `incl` {list}:
+            Inclination of the disk [degree].
+        """
+        if isinstance(incl, (int, float)):
             incl = [incl]
 
         self.n_size = len(disk_size)
@@ -554,3 +599,187 @@ class Model:
         )
         self.plvisamp = plvisamp[:, :, :, :, :, :, cond]
         self.plvisphi = plvisphi[:, :, :, :, :, :, cond]
+        self.pllcr = self.lcr_data[:, cond]
+        print(
+            "[INFO] Output pure line visibility:",
+            np.shape(self.plvisamp),
+            "= (n_disk_flux, n_halo, n_size, n_pa, n_bl, n_incl, n_plwl)",
+        )
+        self.plwl = self.wl[cond]
+        self.plvel = (self.plwl - self.lam0) / self.lam0 * 3e5
+        self.cond = cond
+
+    def get_pcs(self):
+        """Compute the phocenter barycenter offset (fit a sinusoid model on the
+        pure line offset phases)."""
+        from magneto.alex import shiftcomp
+
+        pureoffset = np.array(
+            [
+                [
+                    [
+                        [
+                            [
+                                [
+                                    [
+                                        pcshift(
+                                            self.plwl[k],
+                                            self.plvisphi[
+                                                dflux, hflux, siz, pa, i, n, k
+                                            ],
+                                            self.bl[i],
+                                        )
+                                        for k in range(len(self.plwl))
+                                    ]
+                                    for n in range(self.nincl)
+                                ]
+                                for i in range(self.nbl)
+                            ]
+                            for pa in range(self.npa)
+                        ]
+                        for siz in range(self.n_size)
+                    ]
+                    for hflux in range(len(self.f_h))
+                ]
+                for dflux in range(len(self.f_c))
+            ]
+        ) * (3600 * self.distance)
+
+        # Save the pure line offset in AU
+        self.pureoffset = pureoffset
+
+        # Pure line offsets per baseline (in au I think)
+        def _catch(x):
+            try:
+                return optimize.curve_fit(
+                    shiftfit, np.squeeze(self.bl_pa), x, p0=[0, 0]
+                )[0]
+            except ValueError:
+                return np.array([0, 0])
+
+        coeffs2 = np.array(
+            [
+                [
+                    [
+                        [
+                            [
+                                [
+                                    _catch(pureoffset[dflux, hflux, siz, pa, :, n, k])
+                                    for k in range(len(self.plwl))
+                                ]
+                                for n in range(self.nincl)
+                            ]
+                            for pa in range(self.npa)
+                        ]
+                        for siz in range(self.n_size)
+                    ]
+                    for hflux in range(len(self.f_h))
+                ]
+                for dflux in range(len(self.f_c))
+            ]
+        )
+        self.sinus_coeff = coeffs2
+
+        barycenter = np.array(
+            [
+                [
+                    [
+                        [
+                            [
+                                [
+                                    shiftcomp(
+                                        coeffs2[dflux, hflux, siz, pa, n, k, 1],
+                                        coeffs2[dflux, hflux, siz, pa, n, k, 0],
+                                    )
+                                    for k in range(len(self.plwl))
+                                ]
+                                for n in range(self.nincl)
+                            ]
+                            for pa in range(self.npa)
+                        ]
+                        for siz in range(self.n_size)
+                    ]
+                    for hflux in range(len(self.f_h))
+                ]
+                for dflux in range(len(self.f_c))
+            ]
+        )
+        self.pcs = barycenter
+        print(
+            "[INFO] photocenter offset:",
+            np.shape(self.pcs),
+            "= (n_disk_flux, n_halo, n_size, n_pa, n_incl, n_plwl, RA/DEC)",
+        )
+
+    def get_interp_cube(self, wl=None):
+        import time
+
+        starttime = time.time()
+        if wl is None:
+            print("[INFO] Interpolate the cube over GRAVITY pure wavelengths...")
+        else:
+            print("[INFO] Interpolate the cube over the user grid wl...")
+        icube = cube_interpolator(self, wl=wl)
+
+        print("Done (%i s)." % (time.time() - starttime))
+        self.icube = icube
+
+    def get_size(self, param="fwhm", display=False):
+        pl_size, l_gauss = fit_multi_size(self, param=param, display=display)
+        self.pl_size = pl_size
+        self.l_gauss = l_gauss
+
+    def save(self, update=False, savedir=None):
+        import os
+        import pickle
+
+        if savedir is None:
+            savedir = "modelDB/"
+        if not os.path.exists(savedir):
+            os.mkdir(savedir)
+
+        incl = self.param.incl
+        key = self.param.key
+        phase = self.param.phase
+
+        savedir += "model%i/" % key
+        if not os.path.exists(savedir):
+            os.mkdir(savedir)
+        savedir += "incl%i/" % incl
+        if not os.path.exists(savedir):
+            os.mkdir(savedir)
+
+        mlight = Model_Light()
+        mlight.plwl = self.plwl
+        mlight.plvisamp = self.plvisamp
+        mlight.bx = self.bx
+        mlight.by = self.by
+        mlight.bl = self.bl
+        mlight.bl_pa = self.bl_pa
+        mlight.pcs = self.pcs
+        mlight.cond = self.cond
+        mlight.icube = self.icube
+        mlight.nbl = self.nbl
+        mlight.plvel = self.plvel
+        mlight.wl = self.wl
+        mlight.lcr_data = self.lcr_data
+        mlight.pllcr = self.pllcr
+        mlight.tv = self.tv
+        mlight.tph = self.tph
+        mlight.plvisphi = self.plvisphi
+        mlight.extent = self.extent
+        mlight.distance = self.distance
+        mlight.lam0 = self.lam0
+        mlight.param = self.param
+        mlight.l_gauss = self.l_gauss
+        mlight.pl_size = self.pl_size
+
+        dpy_file = savedir + "model_%i_i=%i_phase=%2.2f.dpy" % (
+            self.param.key,
+            self.param.incl,
+            phase,
+        )
+        if not os.path.exists(dpy_file) or update:
+            file = open(dpy_file, "wb")
+            pickle.dump(mlight, file, 2)
+            file.close()

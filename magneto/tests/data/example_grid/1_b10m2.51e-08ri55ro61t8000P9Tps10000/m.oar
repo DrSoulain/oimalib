@@ -1,0 +1,35 @@
+#!/bin/bash
+#OAR -l /nodes=1,walltime=48:00:00
+#OAR --name 2_b10m2.51e-08ri55ro61t8000P9Tps10000
+#OAR --project spidi1
+#OAR --notify mail:anthony.soulain@univ-grenoble-alpes.fr
+
+
+sim_dir=$(basename $(pwd))
+command="${HOME}/mcfost/bin/mcfost"
+parafile="m.para"
+
+args_mc="+disk_struct -atom -healpix_lorder 2 -max_err 1e-2 -iterate_ne 2 -safe_stop -Nrays_mc_step 300 -Ndelay_iterate_ne 2 -split_image"
+
+
+model_file="m.b"
+
+
+nbcores=`cat $OAR_NODE_FILE|wc -l`
+echo "nbcores=$nbcores"
+
+
+ulimit -s unlimited
+export MCFOST_UTILS="${HOME}/mcfost/utils/"
+export MCFOST_INSTALL="${HOME}/mcfost/"
+export OMP_STACKSIZE=100000M
+export OMP_NUM_THREADS=$nbcores
+export MCFOST_NO_DISCLAIMER=1
+export MCFOST_AUTO_UPDATE=0
+
+
+${command} ${parafile} ${args_mc} -sphere_mesh ${model_file}
+
+
+cd ..
+tar -zcf ${sim_dir}.tar.gz ${sim_dir}

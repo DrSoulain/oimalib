@@ -1,0 +1,33 @@
+key = 3
+** Stellar parameters:
+ ----------------------- 
+  R = 2.000000 Rsun; M = 0.900000 Msun
+  P = 9.000000 d
+  Beq = 1.000000 G
+  T = 4200.000000 K
+  veq = 11.242829 km/s; vff = 414.348785 km/s
+
+** Grid's regions:
+ ----------------------- 
+Rmax = 6.152926 Rstar
+ <//> Accr. Col
+   rmi = 5.537633 Rstar; rmo = 6.152926 Rstar
+   beta_ma = 10.000000 deg
+   Macc = 2.512e-08 Msun/yr
+   S_shock = 0.0058 %
+
+  --  Extent -- 
+   min(r) = 0.0095 R*; max(r) = 0.0567 R*
+  -- Density -- 
+   min(rho) = 9.6667e-10 kg/m3; <rho> = 4.4230e-09 kg/m3; max(rho) = 3.1583e-08 kg/m3
+  -- Temperature -- 
+   min(T) = 5.8696e+03 K; <T>_rho = 7.9690e+03 K; max(T) = 9.0000e+03 K
+  -- Velocities -- 
+   |Vx| 269.911132 km/s 0.012728 km/s
+   |Vy| 229.134659 km/s 0.001603 km/s
+   |Vz| 295.809483 km/s 0.101631 km/s
+   |VR| 269.939456 km/s 0.100867 km/s
+   |Vr| 360.435932 km/s 0.075028 km/s
+   |Vtheta| 82.597054 km/s 2.106202 km/s
+   |Vphi| 70.376031 km/s 0.021605 km/s
+

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "magneto"
-version = "0.1"
+version = "0.2"
 authors = [
     { name = "Anthony Soulain", email = "anthony.soulain@univ-grenoble-alpes.fr" },
 ]
@@ -22,22 +22,20 @@ classifiers = [
 ]
 requires-python = ">=3.9"
 dependencies = [
-    "astropy>=5.0",
+    "astropy",
     "astroquery",
+    "scipy",
+    "rich>=13.5.2",
     "corner",
     "emcee",
     "h5py",
     "matplotlib",
     "numpy",
     "pypdf>=3.2.0",
-    "scipy",
-    "tabulate",
-    "termcolor",
-    "tqdm",
     "uncertainties",
-    "importlib_resources>=1.3; python_version < '3.9'",
     "seaborn",
     "munch",
+    "pandas",
 ]
 
 [project.readme]
