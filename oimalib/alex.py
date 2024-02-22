@@ -20,7 +20,7 @@ def mas2rad(mas):
 
 def gravity_wave():
     """Get the GRAVITY wavelenghts table from internal package dataset."""
-    datadir = importlib_resources.files("magneto") / "internal_data"
+    datadir = importlib_resources.files("oimalib") / "internal_data"
     grav = datadir / "gravity_example.fits"
 
     with fits.open(grav) as fd:

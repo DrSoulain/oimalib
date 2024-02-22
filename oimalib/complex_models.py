@@ -3,6 +3,7 @@ Created on Wed Nov  4 13:14:23 2015
 
 @author: asoulain
 """
+
 import sys
 
 import numpy as np
@@ -11,9 +12,9 @@ from rich import print as rprint
 from scipy import special
 from scipy.ndimage import gaussian_filter1d
 
-from magneto.binary import getBinaryPos, kepler_solve
-from magneto.fourier import shiftFourier
-from magneto.tools import computeBinaryRatio, mas2rad, planck_law, rad2mas
+from oimalib.binary import getBinaryPos, kepler_solve
+from oimalib.fourier import shiftFourier
+from oimalib.tools import computeBinaryRatio, mas2rad, planck_law, rad2mas
 
 
 def norm(x, y):

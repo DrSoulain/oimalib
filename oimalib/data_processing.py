@@ -1,12 +1,13 @@
 """
 @author: Anthony Soulain (Grenoble Alpes University, IPAG)
 -----------------------------------------------------------------
-magneto: optical interferometry modelisation and analysis library
+oimalib: optical interferometry modelisation and analysis library
 -----------------------------------------------------------------
 
 Set of function to perform data selection.
 -----------------------------------------------------------------
 """
+
 from copy import deepcopy
 
 import numpy as np
@@ -14,15 +15,15 @@ from matplotlib import pyplot as plt
 from munch import munchify
 from uncertainties import ufloat
 
-from magneto.fitting import (
+from oimalib.fitting import (
     leastsqFit,
     model_pcshift,
     perform_fit_dphi,
     perform_fit_dvis,
     select_model,
 )
-from magneto.plotting import err_pts_style
-from magneto.tools import (
+from oimalib.plotting import err_pts_style
+from oimalib.tools import (
     binning_tab,
     cart2pol,
     compute_oriented_shift,
@@ -211,7 +212,7 @@ def select_data(
     Parameters:
     -----------
     `list_data` {class/list}:
-        Data or list of data from `magneto.load()`,\n
+        Data or list of data from `oimalib.load()`,\n
     `use_flag` {boolean}:
         If True, use flag from the original oifits file,\n
     `cond_uncer` {boolean}:
@@ -294,7 +295,7 @@ def spectral_bin_data(list_data, nbox=50, force=False, rel_err=0.01, wave_lim=No
     -----------
 
     `list_data` {list}:
-        List of data class (see magneto.load() for details),\n
+        List of data class (see oimalib.load() for details),\n
     `nbox` {int}:
         Size of the box,\n
     `force` {bool}:
@@ -379,7 +380,7 @@ def temporal_bin_data(
     Parameters:
     -----------
     `list_data` {list}:
-        List of data class (see magneto.load() for details),\n
+        List of data class (see oimalib.load() for details),\n
     `wave_lim` {list, n=2}:
         Wavelength range to be exctracted [µm] (e.g.: around BrG line, [2.146, 2.186]),\n
     `time_lim` {list, n=2}:
@@ -503,9 +504,9 @@ def temporal_bin_data(
             dphi = d.dphi[gd][cond_wl]
             # flag = d.flag_dvis[gd][cond_wl]
             # dphi[flag] = np.nan
-            import magneto
+            import oimalib
 
-            magneto.tools.nan_interp(dphi)
+            oimalib.tools.nan_interp(dphi)
             wl = d.wl[cond_wl] * 1e6
             lbdBrg = lbdBrg = 2.165930
             inCont = (np.abs(wl - lbdBrg) < 0.1) * (np.abs(wl - lbdBrg) > 0.004)
@@ -1466,8 +1467,8 @@ def compute_pco(data, data_cont, **args):
 
     Parameters:
     -----------
-    `data` {dict}: class-like data (from magneto.load),\n
-    `data_cont` {dict}: class-like data used as continuum (from magneto.load),\n
+    `data` {dict}: class-like data (from oimalib.load),\n
+    `data_cont` {dict}: class-like data used as continuum (from oimalib.load),\n
     `flc` {dict}: Fitted flux to extract the line to continuum ratio (from
     compute_flc_spectra()),\n
     `force_zero_dphi` {list}: index of baseline to force the phase to zero,\n
@@ -1525,7 +1526,7 @@ def compute_pco(data, data_cont, **args):
 
 
 def pcs_from_aspro(d, lbdBrg=2.1661, wBrg=0.0005, ratio=2.5):
-    """d is class-like dict (from magneto.load) containing data from jmmc
+    """d is class-like dict (from oimalib.load) containing data from jmmc
     software (with only ONE u-v pt). Compute the photocenter shift from the
     already normalized phase visibility."""
     wl = d.wl * 1e6

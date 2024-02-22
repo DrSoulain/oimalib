@@ -8,6 +8,7 @@ Set of function to extract complex visibilities from fits image/cube
 or geometrical model.
 -----------------------------------------------------------------
 """
+
 import multiprocessing
 import sys
 import time
@@ -25,10 +26,10 @@ from scipy.interpolate import RegularGridInterpolator as regip, interp1d, interp
 from scipy.ndimage import gaussian_filter1d, rotate
 from termcolor import cprint
 
-import magneto
-from magneto.fitting import check_params_model, comput_CP, comput_V2, select_model
-from magneto.fourier import UVGrid
-from magneto.tools import apply_windowing, mas2rad, rad2arcsec, rad2mas
+import oimalib
+from oimalib.fitting import check_params_model, comput_CP, comput_V2, select_model
+from oimalib.fourier import UVGrid
+from oimalib.tools import apply_windowing, mas2rad, rad2arcsec, rad2mas
 
 
 def _check_good_tel(list_data, verbose=True):
@@ -916,7 +917,7 @@ def combine_grid_geom_model_image(
 
     if verbose:
         print(
-            "Magnetosphere contribution = {:2.1f} % (lcr = {:2.2f})".format(
+            "oimalibsphere contribution = {:2.1f} % (lcr = {:2.2f})".format(
                 100 * fmag_im / (fmag_im + fh + fc), mm[index_image]
             )
         )
@@ -1120,7 +1121,7 @@ def plot_chi2_lk(
 
     for lk in l_lk:
         input_param["lk"] = lk
-        stat = magneto.plot_residuals(
+        stat = oimalib.plot_residuals(
             dataset,
             input_param,
             fitOnly=fitOnly,

@@ -3,7 +3,7 @@ requires = ["setuptools",  "setuptools-scm", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "magneto"
+name = "oimalib"
 version = "0.2"
 authors = [
     { name = "Anthony Soulain", email = "anthony.soulain@univ-grenoble-alpes.fr" },
@@ -56,7 +56,7 @@ exclude = [
 namespaces = false
 
 [tool.setuptools.package-data]
-magneto = [
+oimalib = [
     "internal_data/*.fits",
 ]
 
@@ -86,5 +86,5 @@ combine-as-imports = true
 
 [tool.coverage.report]
 omit = [
-  "magneto/tests/*"
+  "oimalib/tests/*"
 ]

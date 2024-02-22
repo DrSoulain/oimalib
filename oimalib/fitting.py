@@ -12,11 +12,11 @@ from termcolor import cprint
 from tqdm import tqdm
 from uncertainties import ufloat
 
-import magneto
-from magneto import complex_models
-from magneto.complex_models import model_acc_mag
-from magneto.fit.dpfit import leastsqFit
-from magneto.tools import compute_oriented_shift, mas2rad, round_sci_digit
+import oimalib
+from oimalib import complex_models
+from oimalib.complex_models import model_acc_mag
+from oimalib.fit.dpfit import leastsqFit
+from oimalib.tools import compute_oriented_shift, mas2rad, round_sci_digit
 
 if sys.platform == "darwin":
     multiprocessing.set_start_method("fork", force=True)
@@ -477,9 +477,9 @@ def model_standard_v2(d, param):
     l_mod_cp, l_mod_cvis = [], []
     fitted = param["fitted"]
 
-    mod = magneto.modelling.compute_geom_model_fast(d, param, ncore=1, use_flag=True)
+    mod = oimalib.modelling.compute_geom_model_fast(d, param, ncore=1, use_flag=True)
 
-    npts_flagged = magneto.get_stat_data(d, verbose=False)
+    npts_flagged = oimalib.get_stat_data(d, verbose=False)
 
     l_mod_cp = []
     l_mod_cvis = []
@@ -617,7 +617,7 @@ def compute_chi2_curve(
 
     n_freedom = len(fitOnly)
 
-    n_pts = magneto.get_stat_data(data)
+    n_pts = oimalib.get_stat_data(data)
 
     l_chi2r = np.array(l_chi2r)
     l_chi2 = np.array(l_chi2r) * (n_pts - (n_freedom - 1))
@@ -760,7 +760,7 @@ def smartfit(
         except Exception:
             pass
 
-    obs = np.concatenate([magneto.format_obs(x, use_flag=True) for x in data])
+    obs = np.concatenate([oimalib.format_obs(x, use_flag=True) for x in data])
     save_obs = obs.copy()
     obs = []
     for o in save_obs:
@@ -1118,7 +1118,7 @@ def mcmcfit(
     if tobefit is None:
         tobefit = ["V2", "CP"]
 
-    obs = np.concatenate([magneto.format_obs(x, use_flag=True) for x in data])
+    obs = np.concatenate([oimalib.format_obs(x, use_flag=True) for x in data])
     save_obs = obs.copy()
     obs = []
     for o in save_obs:
@@ -1327,7 +1327,7 @@ def fit_flc_spectra(
 
     # Normalize the flux to 1
     if norm:
-        magneto.tools.normalize_continuum(flux, wl, inCont)
+        oimalib.tools.normalize_continuum(flux, wl, inCont)
 
     if err_cont:
         e_flux = np.std(flux[inCont])
@@ -1352,7 +1352,7 @@ def fit_flc_spectra(
         }
         name_model = model_flux_red_abs
 
-    fit = magneto.fitting.leastsqFit(
+    fit = oimalib.fitting.leastsqFit(
         name_model,
         X,
         param,
@@ -1605,7 +1605,7 @@ def perform_fit_dvis(wl, dvis, e_dvis, param, double=False, inCont=None, display
         plt.tight_layout()
         plt.show(block=False)
 
-    fit = magneto.fitting.leastsqFit(
+    fit = oimalib.fitting.leastsqFit(
         model_1dgauss_offset_double,
         wl[~inCont],
         param,
@@ -1653,7 +1653,7 @@ def perform_fit_dphi(
         plt.tight_layout()
         plt.show(block=False)
 
-    fit = magneto.fitting.leastsqFit(
+    fit = oimalib.fitting.leastsqFit(
         model_1dgauss_offset_double,
         wl,
         param,
@@ -1736,7 +1736,7 @@ def fit_size(Model, i_wl, dwl=None, param="fwhm", display=True, verbose=True):
     y_model = model_acc_mag([u_model, v_model, wl], fit_best_gauss["best"])
 
     if display:
-        from magneto.plotting import err_pts_style
+        from oimalib.plotting import err_pts_style
 
         plt.figure(figsize=(8, 5))
         plt.title("Fit size @ %2.4f µm" % (wl.mean() * 1e6))

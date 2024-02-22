@@ -1,11 +1,11 @@
 # MACOS / local installation
 *.DS_Store
 __pycache__/
-magneto.egg-info/
+oimalib.egg-info/
 .vscode/
 
 # Coverage
-magneto/coverage.xml
-magneto/.coverage
+oimalib/coverage.xml
+oimalib/.coverage
 coverage.xml
 .coverage

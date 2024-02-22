@@ -4,7 +4,7 @@ from astropy.io import fits
 from matplotlib import pyplot as plt
 from scipy import optimize
 
-from magneto.alex import (
+from oimalib.alex import (
     contvis,
     cube_interpolator,
     pcshift,
@@ -15,7 +15,7 @@ from magneto.alex import (
     totphase,
     totvis,
 )
-from magneto.fitting import fit_multi_size
+from oimalib.fitting import fit_multi_size
 
 
 class Model_Light:
@@ -33,7 +33,7 @@ class Model:
         Name of the model file,\n
     `mparam` {dict}:
         Parameters dictionnary obtained from the readme file. See
-        magneto.mcfost.get_model_file() for details,\n
+        oimalib.mcfost.get_model_file() for details,\n
     `distance` {float}:
         Distance in parsec (defautl: 1),\n
     `res` {float}:
@@ -131,7 +131,7 @@ class Model:
         """Build array coordinates and rotate (if any)."""
         if pa is None:
             pa = [0]
-        from magneto.alex import shiftcomp
+        from oimalib.alex import shiftcomp
 
         if isinstance(pa, (float, int)):
             pa = [pa]
@@ -612,7 +612,7 @@ class Model:
     def get_pcs(self):
         """Compute the phocenter barycenter offset (fit a sinusoid model on the
         pure line offset phases)."""
-        from magneto.alex import shiftcomp
+        from oimalib.alex import shiftcomp
 
         pureoffset = np.array(
             [

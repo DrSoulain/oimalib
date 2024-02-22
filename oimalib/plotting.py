@@ -1,12 +1,13 @@
 """
 @author: Anthony Soulain (Institut de Planetologie de Grenoble)
 -----------------------------------------------------------------
-MAGNETO: optical interferometry modelisation and analysis library
+oimalib: optical interferometry modelisation and analysis library
 -----------------------------------------------------------------
 
 Set of function to plot oi data, u-v plan, models, etc.
 -----------------------------------------------------------------
 """
+
 import importlib.resources as importlib_resources
 
 import matplotlib
@@ -26,15 +27,28 @@ from scipy.ndimage import center_of_mass, rotate
 from termcolor import cprint
 from uncertainties import unumpy
 
-from magneto.complex_models import visGaussianDisk
-from magneto.fitting import (check_params_model, format_obs, get_mcmc_results,
-                             model_flux, model_flux_red_abs, model_pcshift,
-                             select_model)
-from magneto.fourier import UVGrid
-from magneto.modelling import compute_geom_model_fast
-from magneto.tools import (cart2pol, find_nearest, hide_xlabel, mas2rad,
-                           normalize_continuum, plot_vline, rad2arcsec,
-                           rad2mas)
+from oimalib.complex_models import visGaussianDisk
+from oimalib.fitting import (
+    check_params_model,
+    format_obs,
+    get_mcmc_results,
+    model_flux,
+    model_flux_red_abs,
+    model_pcshift,
+    select_model,
+)
+from oimalib.fourier import UVGrid
+from oimalib.modelling import compute_geom_model_fast
+from oimalib.tools import (
+    cart2pol,
+    find_nearest,
+    hide_xlabel,
+    mas2rad,
+    normalize_continuum,
+    plot_vline,
+    rad2arcsec,
+    rad2mas,
+)
 
 dic_color = {
     "A0-B2": "#928a97",  # SB
@@ -1512,7 +1526,7 @@ def plot_mcmc_results(
         except KeyError:
             pass
         del dict_mcmc["a"]
-    
+
     df = pd.DataFrame(dict_mcmc)
 
     color = "#ee9068"

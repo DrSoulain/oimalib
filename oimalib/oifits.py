@@ -7,6 +7,7 @@ OIMALIB: Optical Interferometry Modelisation and Analysis Library
 OIFITS related function.
 -----------------------------------------------------------------
 """
+
 import os
 import sys
 from glob import glob
@@ -15,7 +16,7 @@ import numpy as np
 from astropy.io import fits
 from munch import munchify as dict2class
 
-from magneto.plotting import dic_color
+from oimalib.plotting import dic_color
 
 
 def _compute_dic_index(index_ref, teles_ref):

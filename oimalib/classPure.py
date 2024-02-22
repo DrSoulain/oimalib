@@ -7,16 +7,16 @@ from scipy.constants import c as c_light
 from termcolor import cprint
 from uncertainties import ufloat, unumpy
 
-from magneto.complex_models import model_acc_mag
-from magneto.data_processing import (
+from oimalib.complex_models import model_acc_mag
+from oimalib.data_processing import (
     normalize_dphi_continuum,
     normalize_dvis_continuum,
     perform_fit_dphi,
     perform_fit_dvis,
 )
-from magneto.fitting import err_pts_style_f, fit_flc_spectra, leastsqFit, model_pcshift
-from magneto.plotting import dic_color
-from magneto.tools import cart2pol, compute_oriented_shift
+from oimalib.fitting import err_pts_style_f, fit_flc_spectra, leastsqFit, model_pcshift
+from oimalib.plotting import dic_color
+from oimalib.tools import cart2pol, compute_oriented_shift
 
 
 class OiPure:
@@ -118,8 +118,8 @@ class OiPure:
 
         `data` : {dict}
             Class-like object containing the oifits data from
-            magneto.load(). Generaly, the flc is computed from an averaged dataset using
-            magneto.temporal_bin_data(),\n
+            oimalib.load(). Generaly, the flc is computed from an averaged dataset using
+            oimalib.temporal_bin_data(),\n
         `lbdBrg` : {float}
             Central wavelength position (initial) [µm],\n
         `wBrg` : {float}
@@ -178,7 +178,7 @@ class OiPure:
         dvis and add_noise[1] is the one for the phase).
         -------
         """
-        from magneto.tools import nan_interp
+        from oimalib.tools import nan_interp
 
         self.use_mod = use_mod
         # Check inputs
@@ -341,7 +341,7 @@ class OiPure:
 
     def __compute_pco(self):
         """ """
-        from magneto.tools import rad2mas
+        from oimalib.tools import rad2mas
 
         wl_inline = self.wl[self.inLine]
         n_wl_inline = len(wl_inline)
@@ -383,7 +383,7 @@ class OiPure:
             "elinewidth": 0.5,
             "alpha": 1,
         }
-        from magneto.plotting import _update_color_bl
+        from oimalib.plotting import _update_color_bl
 
         pco = self.pco
         e_pco = self.e_pco
@@ -486,7 +486,7 @@ class OiPure:
             plt.xlim(0, 360)
             nframe += 1
 
-        from magneto.plotting import _plot_uvdata_coord
+        from oimalib.plotting import _plot_uvdata_coord
 
         ax = plt.subplot(2, 5, 1)
         _plot_uvdata_coord(self.data, ax=ax)
