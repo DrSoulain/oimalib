@@ -22,7 +22,7 @@ from oimalib.fitting import (
     perform_fit_dvis,
     select_model,
 )
-from oimalib.plotting import err_pts_style
+from oimalib.plotting import err_pts_style, plot_condition
 from oimalib.tools import (
     binning_tab,
     cart2pol,
@@ -370,7 +370,12 @@ def spectral_bin_data(list_data, nbox=50, force=False, rel_err=0.01, wave_lim=No
 
 
 def temporal_bin_data(
-    list_data, wave_lim=None, time_lim=None, custom_hour=None, verbose=False
+    list_data,
+    wave_lim=None,
+    time_lim=None,
+    custom_hour=None,
+    verbose=False,
+    corr_tellu=False,
 ):
     """Temporal bin between data observed during the same night. Can specify
     wavelength limits `wave_lim` (should be not used with spectrally binned data) and
@@ -385,6 +390,10 @@ def temporal_bin_data(
         Wavelength range to be exctracted [µm] (e.g.: around BrG line, [2.146, 2.186]),\n
     `time_lim` {list, n=2}:
         Time range to compute averaged obserbables [hour] (e.g.: [0, 1] for the first hour),\n
+    `corr_tellu` {boolean}:
+        If True, the tellurics correction is applied. Need pmoired `tellcorr.gravity()`
+          to be runned first.
+
     """
     from astropy.io import fits
 
@@ -397,12 +406,15 @@ def temporal_bin_data(
     with fits.open(oi) as fo:
         mjd0 = fo["OI_VIS2", None].data.field("MJD")[0]
 
-    l_hour = []
+    l_hour, l_mjd = [], []
     for d in list_data:
         tmp_oi = d.info.filename
         with fits.open(tmp_oi) as fo:
             mjd = fo["OI_VIS2", None].data.field("MJD")[0]
         l_hour.append(round((mjd - mjd0) * 24, 1))
+        l_mjd.append(mjd)
+    mjd_master = np.mean(l_mjd)
+
     l_hour = np.array(l_hour)
     l_hour = l_hour[~np.isnan(l_hour)]
     if len(l_hour) == 0:
@@ -564,8 +576,8 @@ def temporal_bin_data(
     tab_dphi[np.isnan(tab_dphi)] = 0
     weight_dphi[np.isnan(weight_dphi)] = 1e-50
 
-    dvis_m, e_dvis_m = wtmn(tab_dvis, weights=weight_dvis)
-    dphi_m, e_dphi_m = wtmn(tab_dphi, weights=weight_dphi)
+    dvis_m, e_dvis_m = wtmn(tab_dvis, weights=weight_dvis, cons=False)
+    dphi_m, e_dphi_m = wtmn(tab_dphi, weights=weight_dphi, cons=False)
 
     tab_vis2[np.isnan(tab_vis2)] = 0
     weight_vis2[np.isnan(weight_vis2)] = 1e-50
@@ -581,11 +593,18 @@ def temporal_bin_data(
     if len(exclude_tel) != 0:
         cond_flux = ~(master_tel == exclude_tel[0])
 
-    tab_flux = np.zeros([len(list_data), len(wave)])
-
+    tab_flux = np.zeros([len(file_to_be_combined), len(wave)])
     try:
-        for i, d in enumerate(list_data):
+        for i, ind_file in enumerate(file_to_be_combined):
+            d = list_data[ind_file].copy()
+
             a = np.mean(d.flux[cond_flux], axis=0)[cond_wl]
+            tel_tran = np.ones_like(a)
+            if corr_tellu:
+                filename = d.info.filename
+                h = fits.open(filename)
+                tel_tran = h["TELLURICS"].data["TELL_TRANS"][cond_wl]
+            a /= tel_tran
             tab_flux[i] = a / a[0]
         master_flux = np.mean(tab_flux, axis=0)
         e_master_flux = np.std(tab_flux, axis=0)
@@ -593,8 +612,8 @@ def temporal_bin_data(
         # plt.figure()
         # plt.plot(tab_flux.T)
         # plt.plot(master_flux, "k")
-        # plt.plot(master_flux-e_master_flux.mean(), "k--")
-        # plt.plot(master_flux+e_master_flux.mean(), "k--")
+        # plt.plot(master_flux - e_master_flux.mean(), "k--")
+        # plt.plot(master_flux + e_master_flux.mean(), "k--")
 
     except IndexError:
         master_flux = np.array([[np.nan] * len(wave)] * 4)
@@ -635,6 +654,7 @@ def temporal_bin_data(
         "teles_ref": list_data[0].teles_ref,
         "index_ref": list_data[0].index_ref,
         "index_cp": index_cp,
+        "mjd": mjd_master,
     }
 
     return munchify(output)
@@ -1601,9 +1621,7 @@ def pcs_from_aspro(d, lbdBrg=2.1661, wBrg=0.0005, ratio=2.5):
     return pcs
 
 
-def extract_condition(
-    list_data,
-):
+def extract_condition(list_data, tau_lim=20, display=False):
     from astropy.io import fits
 
     l_seeing = []
@@ -1635,5 +1653,8 @@ def extract_condition(
         "mjd": np.array(l_mjd),
         "mjd0": mjd0,
     }
+
+    if display:
+        plot_condition(l_mjd, l_seeing, l_tau, tau_lim=tau_lim)
 
     return munchify(output)

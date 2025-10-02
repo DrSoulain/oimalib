@@ -21,13 +21,14 @@ from .modelling import (
 )
 from .models import Model  # , load
 from .oifits import get_condition, load
-from .plotting import plot_plvis  # , model_ui
 from .plotting import (
     plot_complex_model,
+    plot_data_paper,
     plot_dvis,
     plot_image_model,
     plot_mcmc_results,
     plot_oidata,
+    plot_plvis,  # , model_ui
     plot_residuals,
     plot_spectra,
     plot_uv,

@@ -12,6 +12,7 @@ from itertools import islice
 
 import numpy as np
 from astropy import constants as cs
+from astropy.io import fits
 from matplotlib import pyplot as plt
 from munch import munchify
 from uncertainties import umath, unumpy
@@ -927,3 +928,46 @@ def compute_yso_carac(
     print(f"R_sub = {r_sub} AU = {r_sub_star} R*")
 
     return ur_tr_au, ur_co.value, r_sub, Macc
+
+
+def convert_ind_data(dataset, wave_lim=None, corr_tellu=False):
+    """Correct tellurics and select the wavelenght. To be consistent with
+    the temporal averaging format."""
+    if wave_lim is None:
+        wave_lim = [2.1461, 2.1861]
+
+    wave = dataset.wl * 1e6
+    cond_wl = (wave >= wave_lim[0]) & (wave < wave_lim[1])
+    wave = wave[cond_wl]
+
+    a = np.mean(dataset.flux, axis=0)[cond_wl]
+    tel_tran = np.ones_like(a)
+    if corr_tellu:
+        filename = dataset.info.filename
+        h = fits.open(filename)
+        tel_tran = h["TELLURICS"].data["TELL_TRANS"][cond_wl]
+    a /= tel_tran
+    corr_flux = a / a[0]
+
+    dataset2 = dataset.copy()
+    dataset2.flux = corr_flux
+    dataset2.wl = wave / 1e6
+    dataset2.dphi = dataset.dphi[:, cond_wl]
+    dataset2.e_dphi = dataset.e_dphi[:, cond_wl]
+    dataset2.dvis = dataset.dvis[:, cond_wl]
+    dataset2.e_dvis = dataset.e_dvis[:, cond_wl]
+    dataset2.vis2 = dataset.vis2[:, cond_wl]
+    dataset2.e_vis2 = dataset.e_vis2[:, cond_wl]
+    dataset2.cp = dataset.cp[:, cond_wl]
+    dataset2.e_cp = dataset.e_cp[:, cond_wl]
+    dataset2.flag_vis2 = dataset.flag_vis2[:, cond_wl]
+    return dataset2
+
+
+def plot_circle(r, x0=0, y0=0, ax=None, color="k", ls="-", label=""):
+    theta_model = np.linspace(0, 2 * np.pi, 100)
+    x_star = r * np.sin(theta_model)
+    y_star = r * np.cos(theta_model)
+    if ax is None:
+        ax = plt.gca()
+    ax.plot(x0 + x_star, y0 + y_star, color=color, ls=ls, label=label)

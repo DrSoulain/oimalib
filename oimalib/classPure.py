@@ -1,3 +1,4 @@
+import munch
 import numpy as np
 import seaborn as sns
 from matplotlib import pyplot as plt
@@ -44,6 +45,12 @@ class OiPure:
 
         self.u_dvis_pure = []
         self.u_dphi_pure = []
+        self.target = data.info.Target[0]
+        self.mjd = data.info.mjd
+        try:
+            self.part = data.info.part
+        except AttributeError:
+            pass
 
     def __ufloat_quantities(
         self, V_tot, e_V_tot, F_tot, V_cont, e_V_cont, dphi_tot, e_dphi_tot
@@ -108,6 +115,8 @@ class OiPure:
         norm=True,
         use_model=True,
         tellu=False,
+        force_wBrg=None,
+        force_restframe=None,
     ):
         """
         Fit the spectral line of GRAVITY (`lbdBrg`) and return the fitted line to
@@ -140,6 +149,8 @@ class OiPure:
             norm=norm,
             use_model=use_model,
             tellu=tellu,
+            force_wBrg=force_wBrg,
+            force_restframe=force_restframe,
         )
         self.lcr = res["F_lc"]
         self.flux = res["flux"]
@@ -151,6 +162,7 @@ class OiPure:
         self.inLine = res["inLine"]
         self.wl_model = res["wl_model"]
         self.flux_model = res["flux_model"]
+        # print("fit lcr n channel %i" % len(self.wl[self.inLine]))
 
     def compute_quantities_ibl(
         self,
@@ -191,8 +203,10 @@ class OiPure:
         self.V_tot = np.zeros([nbl, nline])
         self.e_dphi_tot = np.zeros(nbl)
         self.bl_pa = np.zeros_like(self.bl_length)
-        cprint("Extract Pure line quantities", "cyan")
-        cprint("----------------------------", "cyan")
+
+        if verbose:
+            cprint("Extract Pure line quantities", "cyan")
+            cprint("----------------------------", "cyan")
         for ibl in range(len(data.u)):
             ucoord = data.u[ibl]
             vcoord = data.v[ibl]
@@ -234,6 +248,7 @@ class OiPure:
                 dvis += np.random.normal(0, add_noise[0], len(dvis))
                 dphi += np.random.normal(0, add_noise[1], len(dphi))
 
+            # print(use_cont_err)
             if use_cont_err:
                 e_dphi = np.ones(len(e_dphi)) * np.std(dphi[inCont])
                 e_dvis = np.ones(len(e_dvis)) * np.std(dvis[inCont])
@@ -309,6 +324,13 @@ class OiPure:
 
             e_V_tot = np.mean(e_dvis[inLine])
             e_dphi_tot = np.mean(np.deg2rad(e_dphi[inLine]))
+            # print("bl_length", bl_length, "m")
+            # print("dphi[inLine]", np.deg2rad(dphi[inLine]))
+            # print("e_dphi[inLine]", np.deg2rad(e_dphi[inLine]))
+            # print(
+            #     "rel err", 100 * np.deg2rad(e_dphi[inLine]) / np.deg2rad(dphi[inLine])
+            # )
+            # print("e_dphi[inLine] mean", e_dphi[inLine].mean(), "\n")
 
             self.V_tot[ibl] = V_tot
             self.e_V_tot[ibl] = e_V_tot
@@ -323,10 +345,11 @@ class OiPure:
                 wl_ft = ft.wl * 1e6
                 close_line = abs(wl_ft - self.restframe) < 0.12
 
-            print(
-                f"{data.blname[ibl]} Continuum amp = ",
-                ufloat(V_cont, e_V_cont),
-            )
+            if verbose:
+                print(
+                    f"{data.blname[ibl]} Continuum amp = ",
+                    ufloat(V_cont, e_V_cont),
+                )
 
             self.V_cont[ibl] = V_cont
             self.e_V_cont[ibl] = e_V_cont
@@ -398,6 +421,9 @@ class OiPure:
 
         sns.set_context("talk", font_scale=0.9)
         plt.figure(figsize=(16, 8))
+        nff = 2
+        if len(wl) > 10:
+            nff = 3
         nframe = 2
         for iwl_pc in np.argsort(wl):
             x_pc_mod = np.linspace(0, 360, 100)
@@ -418,7 +444,7 @@ class OiPure:
             y_pc_mod1 = model_pcshift(x_pc_mod, p1)
             y_pc_mod2 = model_pcshift(x_pc_mod, p2)
 
-            ax = plt.subplot(2, 5, nframe)
+            ax = plt.subplot(nff, 5, nframe)
             for i in range(nbl):
                 blname = l_blname[i]
                 color_bl = dic_color[blname]
@@ -577,7 +603,18 @@ class OiPure:
         self.pcs_east = pcs_east
         self.pcs_north = pcs_north
 
-    def compute_size(self, p0, use_flag=True, r0=None, verbose=3, display=True):
+    def compute_size(
+        self,
+        p0,
+        fitOnly=None,
+        use_flag=True,
+        r0=None,
+        scale_err=1,
+        verbose=3,
+        dkpc=0.160,
+        rstar=0.0093,
+        display=True,
+    ):
         """
         Compute the size of the line emitting region.
 
@@ -593,7 +630,7 @@ class OiPure:
         """
         u_dvis_pure = self.u_dvis_pure
         dvis_pure = unumpy.nominal_values(u_dvis_pure)
-        e_dvis_pure = unumpy.std_devs(u_dvis_pure)
+        e_dvis_pure = unumpy.std_devs(u_dvis_pure) * scale_err
 
         used_bl = np.arange(len(u_dvis_pure))
 
@@ -634,6 +671,7 @@ class OiPure:
             l_err,
             verbose=3,
             normalizedUncer=False,
+            fitOnly=fitOnly,
         )
 
         u = np.linspace(0, 250, 100)
@@ -652,10 +690,10 @@ class OiPure:
         cprint("------------------------------", "magenta")
         cprint(f"r_mag = {radius_mag} mas%s" % txt, "magenta")
         cprint(
-            f"      = {radius_mag * ufloat(0.1603, 0.0004):.1uf} au%s" % txt, "magenta"
+            f"      = {radius_mag * ufloat(dkpc, 0.0004):.1uf} au%s" % txt, "magenta"
         )
         cprint(
-            f"      = {radius_mag * ufloat(0.1603, 0.0004)/ufloat(0.0093, 0.15*0.0093)} Rs%s"
+            f"      = {radius_mag * ufloat(dkpc, 0.0004)/ufloat(rstar, 0.15*rstar)} Rs%s"
             % txt,
             "magenta",
         )
@@ -670,8 +708,8 @@ class OiPure:
                 "elinewidth": 3,
                 "ms": 15,
             }
-            sns.reset_orig()
-            sns.set_context("talk", font_scale=0.9)
+            # sns.reset_orig()
+            # sns.set_context("talk", font_scale=0.9)
             plt.figure(figsize=(7.2, 4))
             plt.errorbar(
                 l_bl,
@@ -756,7 +794,7 @@ class OiPure:
             phi_max = np.max([tmp, 1])
 
         plt.figure(figsize=(9, 8))
-        sns.set_context("talk", font_scale=0.9)
+        # sns.set_context("talk", font_scale=0.9)
         ax = plt.subplot(311)
         plt.errorbar(self.wl, self.flux, yerr=self.e_flux, **err_pts_style_f)
         plt.plot(self.wl_model, self.flux_model, alpha=0.5, color="tab:blue")
@@ -935,15 +973,30 @@ class OiPure:
         return ax2
 
     def plot_pcs(
-        self, dpc=None, xlim=180, vel_map=False, phase=None, rs_mas=None, unit="µmas"
+        self,
+        direct=True,
+        dpc=None,
+        xlim=180,
+        vel_map=False,
+        phase=None,
+        rs_mas=None,
+        unit="µmas",
+        ax=None,
+        s_marker=50,
     ):
         # [cond_sel & cond_sel_abs] * factor
         from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-        pcs_east = unumpy.nominal_values(self.pcs_east)
-        pcs_north = unumpy.nominal_values(self.pcs_north)
-        e_pcs_east = unumpy.std_devs(self.pcs_east)
-        e_pcs_north = unumpy.std_devs(self.pcs_north)
+        if not direct:
+            pcs_east = unumpy.nominal_values(self.pcs_east)
+            pcs_north = unumpy.nominal_values(self.pcs_north)
+            e_pcs_east = unumpy.std_devs(self.pcs_east)
+            e_pcs_north = unumpy.std_devs(self.pcs_north)
+        else:
+            pcs_east = unumpy.nominal_values(self.pcs_east_dir)
+            pcs_north = unumpy.nominal_values(self.pcs_north_dir)
+            e_pcs_east = unumpy.std_devs(self.pcs_east_dir)
+            e_pcs_north = unumpy.std_devs(self.pcs_north_dir)
 
         if dpc is None:
             dpc = 1
@@ -970,8 +1023,11 @@ class OiPure:
         else:
             wave = self.wl[self.inLine]
 
-        plt.figure(figsize=(7.2, 6))
-        ax = plt.gca()
+        if ax is None:
+            ax = plt.gca()
+            plt.figure(figsize=(7.2, 6))
+            noax = True
+
         sc = ax.scatter(
             pcs_east,
             pcs_north,
@@ -980,6 +1036,7 @@ class OiPure:
             edgecolor="k",
             zorder=3,
             linewidth=1,
+            s=s_marker,
         )
         ax.plot(pcs_east, pcs_north, ls="--", color="k", lw=1)
         ax.errorbar(
@@ -998,6 +1055,7 @@ class OiPure:
         cbar_kws = {
             "label": clabel,
         }
+
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="3%", pad=0.05)
         cbar = plt.colorbar(sc, **cbar_kws, cax=cax)
@@ -1034,11 +1092,11 @@ class OiPure:
 
         ax.set_xlim(xlim, -xlim)
         ax.set_ylim(-xlim, xlim)
-        ax.set_aspect("equal", adjustable="box")
+        # ax.set_aspect("equal", adjustable="box")
         plt.tight_layout(pad=1.01)
-        return ax
+        return ax, pcs_east, pcs_north
 
-    def detection_check_dvis(self, limit=1, exclude=None):
+    def detection_check_dvis(self, limit=1, exclude=None, display=True):
         """Check the detection limit for the differential visibility.
         Default `limit` is set as 1 sigma."""
         nbl = len(self.data.u)
@@ -1092,59 +1150,61 @@ class OiPure:
         self.flag = np.array([[False] * len(wl_in)] * nbl)
         self.flag_bl = np.array([False] * nbl)
         self.cond_up = np.array([False] * nbl)
-        fig = plt.figure(figsize=(9, 6))
-        fig.suptitle("Diff. visibility detection")
-        i = 1
-        for ibl in np.argsort(self.bl_length):
-            diff = abs((Y[ibl] - self.V_cont[ibl]) / self.e_V_cont[ibl])
-            diff_raw = abs((self.dvis[ibl] - self.V_cont[ibl]) / self.e_V_cont[ibl])
-            diff_in = diff[self.inLine]
+        if display:
+            fig = plt.figure(figsize=(9, 6))
+            fig.suptitle("Diff. visibility detection")
+            i = 1
+            for ibl in np.argsort(self.bl_length):
+                diff = abs((Y[ibl] - self.V_cont[ibl]) / self.e_V_cont[ibl])
+                diff_raw = abs((self.dvis[ibl] - self.V_cont[ibl]) / self.e_V_cont[ibl])
+                diff_in = diff[self.inLine]
 
-            cond_up = diff_in >= limit
-            n_up = len(diff_in[cond_up]) / len(diff_in)
+                cond_up = diff_in >= limit
+                n_up = len(diff_in[cond_up]) / len(diff_in)
 
-            frac_good = round(1e2 * n_up, 0)
-            sigma_max = round(np.max(diff_in), 1)
-            # sigma_mean = round(np.mean(diff_in), 1)
+                frac_good = round(1e2 * n_up, 0)
+                sigma_max = round(np.max(diff_in), 1)
+                # sigma_mean = round(np.mean(diff_in), 1)
 
-            ax = plt.subplot(2, 3, i)
-            plt.title(f"{self.data.blname[ibl]} (%i m)" % self.bl_length[ibl])
-            plt.plot(self.wl, diff)
-            plt.plot(self.wl, diff_raw, ".", alpha=0.5, color="gray")
-            plt.scatter(
-                wl_in[diff_in >= limit],
-                diff_in[diff_in >= limit],
-                s=30,
-                edgecolors="k",
-                color="green",
-                zorder=3,
-            )
-            plt.scatter(
-                wl_in[diff_in < limit],
-                diff_in[diff_in < limit],
-                s=30,
-                edgecolors="k",
-                color="red",
-                zorder=3,
-            )
-            plt.ylim(-0.5, max_detect + 1)
-            plt.xlim(
-                self.restframe - 3 * self.widthline, self.restframe + 3 * self.widthline
-            )
-            common_plot(ax, sigma_max, frac_good)
-            i += 1
-            self.flag[ibl] = diff_in < limit
-            self.flag_bl[ibl] = np.max(diff_in) < limit
-            blname = self.data.blname[ibl]
-            b1 = blname.split("-")[0]
-            b2 = blname.split("-")[1]
-            if (b1 in exclude) or (b2 in exclude):
-                self.flag_bl[ibl] = True
-            print(ibl, self.flag_bl[ibl], blname)
-            # self.cond_up[ibl] = cond_up
-        plt.tight_layout()
+                ax = plt.subplot(2, 3, i)
+                plt.title(f"{self.data.blname[ibl]} (%i m)" % self.bl_length[ibl])
+                plt.plot(self.wl, diff)
+                plt.plot(self.wl, diff_raw, ".", alpha=0.5, color="gray")
+                plt.scatter(
+                    wl_in[diff_in >= limit],
+                    diff_in[diff_in >= limit],
+                    s=30,
+                    edgecolors="k",
+                    color="green",
+                    zorder=3,
+                )
+                plt.scatter(
+                    wl_in[diff_in < limit],
+                    diff_in[diff_in < limit],
+                    s=30,
+                    edgecolors="k",
+                    color="red",
+                    zorder=3,
+                )
+                plt.ylim(-0.5, max_detect + 1)
+                plt.xlim(
+                    self.restframe - 3 * self.widthline,
+                    self.restframe + 3 * self.widthline,
+                )
+                common_plot(ax, sigma_max, frac_good)
+                i += 1
+                self.flag[ibl] = diff_in < limit
+                self.flag_bl[ibl] = np.max(diff_in) < limit
+                blname = self.data.blname[ibl]
+                b1 = blname.split("-")[0]
+                b2 = blname.split("-")[1]
+                if (b1 in exclude) or (b2 in exclude):
+                    self.flag_bl[ibl] = True
+                print(ibl, self.flag_bl[ibl], blname)
+                # self.cond_up[ibl] = cond_up
+            plt.tight_layout()
 
-    def detection_check_dphi(self, limit=1):
+    def detection_check_dphi(self, limit=1, display=True):
         """Check the detection limit for the differential phases.
         Default `limit` is set as 1 deg difference from the sigma error."""
         nbl = len(self.data.u)
@@ -1178,43 +1238,45 @@ class OiPure:
         wl_in = self.wl[self.inLine]
 
         self.flag = np.array([[False] * len(wl_in)] * nbl)
-        fig = plt.figure(figsize=(9, 6))
-        fig.suptitle("Diff. phase detection")
-        i = 1
-        for ibl in np.argsort(self.bl_length):
-            err_phase = np.rad2deg(self.e_dphi_tot[ibl])
-            diff = abs((Y[ibl]) / err_phase)
-            diff_raw = abs(self.dphi[ibl] / err_phase)
-            diff_in = diff[self.inLine]
-            ax = plt.subplot(2, 3, i)
-            plt.title(f"{self.data.blname[ibl]} (%i m)" % self.bl_length[ibl])
-            plt.plot(self.wl, diff)
-            plt.plot(self.wl, diff_raw, ".", alpha=0.5, color="gray")
-            plt.scatter(
-                wl_in[diff_in >= limit],
-                diff_in[diff_in >= limit],
-                s=30,
-                edgecolors="k",
-                color="green",
-                zorder=3,
-            )
-            plt.scatter(
-                wl_in[diff_in < limit],
-                diff_in[diff_in < limit],
-                s=30,
-                edgecolors="k",
-                color="red",
-                zorder=3,
-            )
-            plt.ylim(-0.5, max_detect + 1)
-            plt.xlim(
-                self.restframe - 3 * self.widthline, self.restframe + 3 * self.widthline
-            )
-            common_plot(ax, round(np.max(diff_in), 2))
-            i += 1
-            self.flag[ibl] = round(np.max(diff_in), 1) < limit
+        if display:
+            fig = plt.figure(figsize=(9, 6))
+            fig.suptitle("Diff. phase detection")
+            i = 1
+            for ibl in np.argsort(self.bl_length):
+                err_phase = np.rad2deg(self.e_dphi_tot[ibl])
+                diff = abs((Y[ibl]) / err_phase)
+                diff_raw = abs(self.dphi[ibl] / err_phase)
+                diff_in = diff[self.inLine]
+                ax = plt.subplot(2, 3, i)
+                plt.title(f"{self.data.blname[ibl]} (%i m)" % self.bl_length[ibl])
+                plt.plot(self.wl, diff)
+                plt.plot(self.wl, diff_raw, ".", alpha=0.5, color="gray")
+                plt.scatter(
+                    wl_in[diff_in >= limit],
+                    diff_in[diff_in >= limit],
+                    s=30,
+                    edgecolors="k",
+                    color="green",
+                    zorder=3,
+                )
+                plt.scatter(
+                    wl_in[diff_in < limit],
+                    diff_in[diff_in < limit],
+                    s=30,
+                    edgecolors="k",
+                    color="red",
+                    zorder=3,
+                )
+                plt.ylim(-0.5, max_detect + 1)
+                plt.xlim(
+                    self.restframe - 3 * self.widthline,
+                    self.restframe + 3 * self.widthline,
+                )
+                common_plot(ax, round(np.max(diff_in), 2))
+                i += 1
+                self.flag[ibl] = round(np.max(diff_in), 1) < limit
 
-        plt.tight_layout()
+            plt.tight_layout()
 
     def compa_sc_ft(self, data_ft):
         sns.set_context("talk", font_scale=0.9)
@@ -1260,3 +1322,64 @@ class OiPure:
                 plt.xlabel("Wavelength [µm]")
             j += 1
         plt.tight_layout()
+
+    def compute_pcs_direct(self, wvl0=2.1661178):
+
+        wl_inline = self.wl[self.inLine]
+        dphi_pure = unumpy.nominal_values(self.u_dphi_pure)
+        e_dphi_pure = unumpy.std_devs(self.u_dphi_pure)
+
+        Nchannel = len(wl_inline)  # Nb of spectral channels probed in BrGamma
+        Nobs = 1  # Nb of files used (=1 when merged)
+        NBL = dphi_pure.shape[0]  # Nb of baselines (=6 for GRAVITY)
+        c = c_light / 1e3  # light speed (in km/s)
+
+        vLine = (wl_inline - wvl0) / wvl0 * c_light / 1e3
+        vLine = vLine.reshape(1, len(vLine))
+        # array of velocities retained for the BrGamma line (in km/s) ; shape = ()
+
+        purePhase = dphi_pure.reshape(NBL, Nobs, Nchannel)
+        err_purePhase = e_dphi_pure.reshape(NBL, Nobs, Nchannel)
+        # purePhase = array of pure line phases (in degrees) ; shape = (NBL, Nobs, Nchannel)
+        # err_purePhase = array of absolute  errors in pure line phases (in degrees)
+
+        B = self.bl_length  # array of projected baselines length (in meters)
+        Bangle = self.bl_pa  # array of baselines' PA (in degrees)
+
+        ### Creating empty photocenter shifts + error arrays
+        x = np.zeros((Nchannel, Nobs)).T
+        err_x = np.zeros((Nchannel, Nobs)).T
+        y = np.zeros((Nchannel, Nobs)).T
+        err_y = np.zeros((Nchannel, Nobs)).T
+
+        #### Creating the u-v coverage matrix
+        B_mat = np.array(
+            [B * np.cos(Bangle * np.pi / 180), B * np.sin(Bangle * np.pi / 180)]
+        ).reshape(2, 6, 1)
+
+        ## Should be possible to vectorize the loops to gain time
+        # Looping over spectral channels
+        for i in range(Nchannel):
+            # Looping over single files
+            for j in range(Nobs):
+                # Extracting the pure-line phase + error corresponding to given obs + channel
+                PHI = purePhase[:, j, i] * np.pi / 180
+                dPHI = err_purePhase[:, j, i] * np.pi / 180
+                # Computing the pseudo-invert matrix of u-v coverage at this obs + channel
+                Bi = np.linalg.pinv(B_mat[:, :, j])
+                wvl = wvl0 * (1 + vLine[j, i] / c) * 1e-6
+                # Computing the photocenter shifts  (in mas)
+                P = -wvl / 2 / np.pi * np.dot(Bi.T, PHI) * 180 / np.pi * 3600000
+                dP = -wvl / 2 / np.pi * np.dot(Bi.T, dPHI) * 180 / np.pi * 3600000
+
+                # Adding values to x,y arrays
+                x[j, i], y[j, i] = P[0], P[1]
+                err_x[j, i], err_y[j, i] = abs(dP[0]), abs(dP[1])
+
+        pcs_east = []
+        pcs_north = []
+        for i in range(x.shape[1]):
+            pcs_east.append(ufloat(y[0, i], err_y[0, i]))
+            pcs_north.append(ufloat(x[0, i], err_x[0, i]))
+        self.pcs_east_dir = np.array(pcs_east) * 1e3
+        self.pcs_north_dir = np.array(pcs_north) * 1e3

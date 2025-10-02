@@ -77,12 +77,24 @@ dic_color = {
     "J2-K0": "c",
     "A0-K0": "#8d90a1",
     "G1-K0": "#ffd100",
-    "U1-U2": "#f1ca7f",
-    "U2-U3": "#255e79",
-    "U3-U4": "#5cc18f",
-    "U2-U4": "#ae3c60",
-    "U1-U3": "#e189b1",
-    "U1-U4": "tab:blue",
+    # "U1-U2": "#f1ca7f",
+    # "U2-U3": "#255e79",
+    # "U3-U4": "#5cc18f",
+    # "U2-U4": "#ae3c60",
+    # "U1-U3": "#e189b1",
+    # "U1-U4": "tab:blue",
+    "U1-U2": "#9B59B6",
+    "U2-U3": "#7C889B",  # 34495E
+    "U3-U4": "#F4D03F",
+    "U2-U4": "#FF6F61",
+    "U1-U3": "#2ECC71",
+    "U1-U4": "#1E90FF",
+    # "U1-U2": "#7C889B",
+    # "U2-U3": "#D6C2AD",
+    # "U3-U4": "#B36E59",
+    # "U2-U4": "#355D30",
+    # "U1-U3": "#8060A8",
+    # "U1-U4": "#9BBD97",
     "UT1-UT2": "#cf962a",
     "UT2-UT3": "#255e79",
     "UT3-UT4": "#4d9d4d",
@@ -1078,6 +1090,7 @@ def plot_spectra(
     speed=False,
     d_speed=1000,
     norm=True,
+    tel_trans=None,
 ):
     if bounds is None:
         bounds = [2.14, 2.19]
@@ -1092,9 +1105,12 @@ def plot_spectra(
     n_spec = spectra.shape[0]
     l_spec, l_wave = [], []
 
+    if tel_trans is None:
+        tel_trans = 1
+
     inbounds = (wave_cal <= bounds[1]) & (wave_cal >= bounds[0])
     for i in range(n_spec):
-        spectrum = spectra[i].copy()
+        spectrum = spectra[i].copy() / tel_trans
         spectrum = spectrum[inbounds]
         wave_bound = wave_cal[inbounds]
         inCont_bound = (np.abs(wave_bound - lbdBrg) < 0.1) * (
@@ -1117,6 +1133,7 @@ def plot_spectra(
     spec_aver = np.mean(spec, axis=1)
 
     max_spec = spec_aver.max()
+
     plt.figure(figsize=[6, 4])
     ax = plt.subplot(111)
 
@@ -1161,6 +1178,7 @@ def plot_dvis(
     norm_vis=True,
     lbdBrg=2.1661,
     ft=None,
+    split=False,
 ):
     """
     Plot differential observables (visibility amplitude and phase).
@@ -1187,7 +1205,7 @@ def plot_dvis(
 
     dic_color = _update_color_bl([data])
 
-    bounds2 = [bounds[0] - 0.001, bounds[1] + 0.001]
+    bounds2 = [bounds[0], bounds[1]]
 
     if len(data.flux.shape) == 1:
         spectrum = data.flux
@@ -1220,14 +1238,21 @@ def plot_dvis(
     bl = data.bl
 
     linestyle = {"lw": 1}
-    fig = plt.figure(figsize=(4, 8.5))
+    fig = plt.figure(figsize=(6, 8.5))
     try:
         peak_line = flux_sel.max()
     except AttributeError:
         peak_line = 0
 
+    if split:
+        n_plot = 7
+        i_init_phase = 2
+    else:
+        n_plot = 13
+        i_init_phase = 8
+
     # ------ PLOT AVERAGED SPECTRUM ------
-    ax = plt.subplot(13, 1, 1)
+    ax = plt.subplot(n_plot, 1, 1)
     plt.plot(wl_sel, flux_sel, **linestyle)
     plt.text(
         0.14,
@@ -1258,7 +1283,7 @@ def plot_dvis(
     plt.xlim(bounds2)
     # ------ PLOT VISIBILITY AMPLITUDE ------
     for i in range(dvis.shape[0]):
-        ax = plt.subplot(13, 1, 2 + i, sharex=ax)
+        ax = plt.subplot(n_plot, 1, 2 + i, sharex=ax)
 
         data_dvis = dvis[i][cond_wl]
         dvis_m = data_dvis[~np.isnan(data_dvis)].mean()
@@ -1338,9 +1363,43 @@ def plot_dvis(
                 transform=ax.transAxes,
             )
 
+    if split:
+        plt.tight_layout()
+        # plt.subplots_adjust(hspace=0.15, bottom=0.06, top=0.99)
+
+        fig = plt.figure(figsize=(6, 8.5))
+        ax = plt.subplot(n_plot, 1, 1)
+        plt.plot(wl_sel, flux_sel, **linestyle)
+        plt.text(
+            0.14,
+            0.8,
+            "lcr = %2.2f" % peak_line,
+            color="#1e82b8",
+            fontsize=10,
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+        )
+        plt.ylabel("Spec.")
+
+        if line is not None:
+            plot_vline(line)
+            plt.text(
+                0.57,
+                0.8,
+                r"Br$\gamma$",
+                color="#eab15d",
+                fontsize=8,
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+            )
+        ax.tick_params(axis="both", which="major", labelsize=8)
+        hide_xlabel()
+        plt.xlim(bounds2)
     # ------ PLOT VISIBILITY PHASE ------
     for i in range(dphi.shape[0]):
-        ax = plt.subplot(13, 1, 8 + i, sharex=ax)
+        ax = plt.subplot(n_plot, 1, i_init_phase + i, sharex=ax)
 
         if np.diff(dphi[i][cond_wl]).mean() != 0:
             X = wl[cond_wl]
@@ -1415,8 +1474,8 @@ def plot_dvis(
             )
             plt.xlim(bounds2)
 
-    # plt.tight_layout()
-    plt.subplots_adjust(hspace=0.15, bottom=0.06, top=0.99)
+    plt.tight_layout()
+    # plt.subplots_adjust(hspace=0.15, bottom=0.06, top=0.99)
     return fig
 
 
@@ -3587,11 +3646,13 @@ def plot_condition(l_mjd, l_seeing, l_tau, tau_min=3, seeing_max=1, tau_lim=10):
     coherence times [ms]."""
     from astropy.time import Time
 
-    sns.set_theme(color_codes=True)
-    sns.set_context("talk", font_scale=0.9)
+    # sns.set_theme(color_codes=True)
+    # sns.set_context("talk", font_scale=0.9)
 
     time_obs = Time(np.array(l_mjd), format="mjd").datetime
 
+    print("Weather conditions over %i files" % len(l_mjd))
+    print("------------------------")
     print(f"mjd = {round(np.mean(l_mjd), 2)}")
     l_seeing = np.array(l_seeing)
     l_tau = np.array(l_tau)
@@ -3717,6 +3778,323 @@ def plot_condition(l_mjd, l_seeing, l_tau, tau_min=3, seeing_max=1, tau_lim=10):
 
 
 #  Plots relative to models
+
+
+def _plot_ind_phase(
+    i_phase, list_dataset, l_ax_phi, dvel=500, wl0=2.1661, range_dphi=5, speed=True
+):
+    import oimalib
+    from oimalib.pcs import convert_ind_data
+
+    for ifile in range(len(list_dataset)):
+        dataset = convert_ind_data(list_dataset[ifile], corr_tellu=False, wave_lim=None)
+        blname = dataset.blname[i_phase]
+        p_color = dic_color[blname]
+
+        eff_wave = dataset.wl * 1e6
+        inCont = (np.abs(eff_wave - wl0) < 0.1) * (np.abs(eff_wave - wl0) > 0.004)
+
+        dphi, e_dphi = oimalib.data_processing.normalize_dphi_continuum(
+            i_phase, dataset, inCont=inCont, lbdBrg=wl0
+        )
+
+        # rms_dphi = np.sqrt(np.mean(np.square(dphi[inCont])))
+        # print("error dphi ind %s" % blname, round(e_dphi.mean(), 3), round(rms_dphi, 3))
+        ax = l_ax_phi[i_phase]
+        wave_vel = ((eff_wave - wl0) / wl0) * c_light / 1e3
+
+        ax.set_xlim(-dvel, dvel)
+        ax.plot(wave_vel, dphi, color=p_color, alpha=0.2)
+        ax.set_ylim(-range_dphi, range_dphi)
+
+
+def _plot_ind_vis(
+    i_phase,
+    list_dataset,
+    dvel=500,
+    wl0=2.1661,
+    l_ax=None,
+    plot_vis2=False,
+    wave_lim=None,
+    check_weird_file=False,
+    cont_vis_ref=1,
+):
+    from oimalib.pcs import convert_ind_data
+
+    for ifile in range(len(list_dataset)):
+        dataset = convert_ind_data(
+            list_dataset[ifile], corr_tellu=False, wave_lim=wave_lim
+        )
+        blname = dataset.blname[i_phase]
+        p_color = dic_color[blname]
+
+        eff_wave = dataset.wl * 1e6
+        # inCont = (np.abs(eff_wave - wl0) < 0.1) * (np.abs(eff_wave - wl0) > 0.004)
+
+        ax = l_ax[i_phase]
+        wave_vel = ((eff_wave - wl0) / wl0) * c_light / 1e3
+
+        ax.set_xlim(-dvel, dvel)
+        cond_vel = (wave_vel >= -dvel) & (wave_vel <= dvel)
+        if plot_vis2:
+            y = dataset.vis2[i_phase] ** 0.5
+        else:
+            y = dataset.dvis[i_phase]
+        if check_weird_file:
+            ax.text(170, y[cond_vel].min(), ifile)
+
+        if cont_vis_ref is not None:
+            y /= cont_vis_ref
+        ax.plot(wave_vel, y, color=p_color, alpha=0.2)
+
+
+def plot_data_paper(
+    list_dataset,
+    d_master=None,
+    inLine=None,
+    vmax=-480,
+    check_weird_file=False,
+    delta_dvis=0.07,
+    use_vis2=False,
+):
+    """Plot the differential data over a dataset list."""
+    import matplotlib.gridspec as gridspec
+
+    from oimalib.data_processing import normalize_dphi_continuum
+
+    err_pts_style_paper = {
+        "linestyle": "None",
+        "capsize": 2,
+        "ecolor": "k",
+        "mec": "k",
+        "marker": ".",
+        "elinewidth": 1,
+        "alpha": 1,
+        "ms": 12,
+    }
+
+    fig = plt.figure(figsize=(13, 7))
+
+    gs = gridspec.GridSpec(
+        6,
+        7,
+        figure=fig,
+        wspace=0.1,
+        hspace=0.05,
+        top=0.94,
+        bottom=0.065,
+        left=0.05,
+        right=0.95,
+    )
+    ax_vis0 = fig.add_subplot(gs[0:1, :2])
+    ax_vis1 = fig.add_subplot(gs[1:2, :2])
+    ax_vis2 = fig.add_subplot(gs[2:3, :2])
+    ax_vis3 = fig.add_subplot(gs[3:4, :2])
+    ax_vis4 = fig.add_subplot(gs[4:5, :2])
+    ax_vis5 = fig.add_subplot(gs[5:, :2])
+
+    ax_phi0 = fig.add_subplot(gs[0:3, 2])
+    ax_phi1 = fig.add_subplot(gs[0:3, 3], sharex=ax_phi0)
+    ax_phi2 = fig.add_subplot(gs[0:3, 4], sharex=ax_phi0)
+    ax_phi3 = fig.add_subplot(gs[3:, 2], sharex=ax_phi0)
+    ax_phi4 = fig.add_subplot(gs[3:, 3], sharex=ax_phi0)
+    ax_phi5 = fig.add_subplot(gs[3:, 4], sharex=ax_phi0)
+    ax_uv = fig.add_subplot(gs[:3, 5:])
+    ax_spec = fig.add_subplot(gs[3:, 5:])
+
+    ax_uv.axvline(0, lw=1, c="gray", ls="--")
+    ax_uv.axhline(0, lw=1, c="gray", ls="--")
+
+    ax_uv.yaxis.tick_right()
+    ax_uv.xaxis.tick_top()
+
+    # ========= PLOT U-V COVERAGE =========
+    theta = np.linspace(0, 2 * np.pi, 100)
+    for rr in np.arange(30, 200, 30):
+        x_uv = rr * np.cos(theta)
+        y_uv = rr * np.sin(theta)
+        ax_uv.plot(x_uv, y_uv, lw=1, c="gray", ls="--")
+
+    for data in list_dataset:
+        for i in range(len(data.u)):
+            blname = data.blname[i]
+            p_color = dic_color[blname]
+            ax_uv.plot(data.u[i], data.v[i], color=p_color, marker="o")
+            ax_uv.plot(-data.u[i], -data.v[i], color=p_color, marker="o")
+
+    ax_uv.set_xlim(140, -140)
+    ax_uv.set_ylim(-140, 140)
+    ax_uv.set_xlabel("U [m]")
+    ax_uv.set_ylabel("V [m]")
+    ax_uv.xaxis.set_label_position("top")
+    ax_uv.yaxis.set_label_position("right")
+
+    # ========= PLOT DIFF. PHASES =========
+    l_ax_phi = [ax_phi0, ax_phi1, ax_phi2, ax_phi3, ax_phi4, ax_phi5]
+    for i in range(6):
+        _plot_ind_phase(i, list_dataset, l_ax_phi, dvel=820)
+
+        if d_master is not None:
+            blname = d_master.blname[i]
+            p_color = dic_color[blname]
+
+            wl0 = 2.1661
+            eff_wave = d_master.wl * 1e6
+            inCont = (np.abs(eff_wave - wl0) < 0.1) * (np.abs(eff_wave - wl0) > 0.004)
+
+            wave_vel = ((eff_wave - wl0) / wl0) * c_light / 1e3
+
+            aver_dphi, err_dphi = normalize_dphi_continuum(
+                i, d_master, lbdBrg=wl0, inCont=inCont, degree=1
+            )
+
+            e_dphi = np.ones(len(err_dphi)) * np.std(aver_dphi[inCont])
+
+            rms_dphi = np.sqrt(np.mean(np.square(aver_dphi[inCont])))
+            print(
+                "[INFO] uncertainty rms of the aver. differential phase for BL %s = %.3f deg"
+                % (blname, rms_dphi)
+            )
+
+            l_ax_phi[i].errorbar(
+                wave_vel, aver_dphi, yerr=e_dphi, color=p_color, **err_pts_style_paper
+            )
+
+        ax = l_ax_phi[i]
+        ax.text(
+            0.5,
+            0.9,
+            blname,
+            transform=ax.transAxes,
+            fontsize=12,
+            color="k",
+            ha="center",
+            va="center",
+            bbox=dict(
+                facecolor=p_color,
+                edgecolor="black",
+                boxstyle="round,pad=0.5",
+            ),
+        )
+        ax.axvline(0, c="k", ls="--")
+        ax.axhline(0, c="k", ls="--")
+
+    # ========= PLOT THE MASTER SPECTRA =========
+    rest = 2.1661178
+    wave_vel = ((eff_wave - rest) / rest) * c_light / 1e3
+
+    aver_spectra = d_master.flux
+    normalize_continuum(aver_spectra, wave_vel, inCont)
+
+    ax_spec.plot(wave_vel, aver_spectra, color="gray")
+    ax_spec.set_xlim(-vmax, vmax)
+
+    if inLine is not None:
+        ax_spec.scatter(
+            wave_vel[inLine],
+            aver_spectra[inLine],
+            c=wave_vel[inLine],
+            cmap="coolwarm",
+            s=50,
+            edgecolors="k",
+            linewidth=1,
+            marker="s",
+            zorder=3,
+        )
+        ax_spec.scatter(
+            wave_vel[~inLine],
+            aver_spectra[~inLine],
+            s=50,
+            c="w",
+            edgecolors="k",
+            linewidth=1,
+            marker="s",
+            zorder=3,
+        )
+        max_inline = wave_vel[inLine][-1]
+        min_cont = wave_vel[~inLine][wave_vel[~inLine] > 0][0]
+        limit_inline = (max_inline + min_cont) / 2.0
+
+        # std_cont_flux = 4.5 * np.std(OiPure.flux[inCont])
+        # ax_spec.axhline(1 + std_cont_flux, ls=":", color="gray")
+        ax_spec.axvline(0, c="k", ls="--")
+        ax_spec.axhline(1, c="k", ls="--")
+        ax_spec.axvspan(-500, -limit_inline, alpha=0.5, color="lightgray")
+        ax_spec.axvspan(limit_inline, 500, alpha=0.5, color="lightgray")
+
+    for i in range(6):
+        l_ax_phi[i].axvspan(-500, -limit_inline, alpha=0.5, color="lightgray")
+        l_ax_phi[i].axvspan(limit_inline, 500, alpha=0.5, color="lightgray")
+        l_ax_phi[i].set_xlim(-vmax, vmax)
+        if i >= 3:
+            l_ax_phi[i].set_xlabel("Velocity [km/s]")
+
+        l_ax_phi[i].tick_params(axis="y", direction="out", pad=-8)
+        for tick in l_ax_phi[i].yaxis.get_majorticklabels():
+            tick.set_horizontalalignment("left")
+        if (i != 0) & (i != 3):
+            l_ax_phi[i].set_yticks([])
+
+    ax_spec.yaxis.set_label_position("right")
+    ax_spec.yaxis.tick_right()
+    ax_spec.set_ylabel("Normalized flux")
+    ax_spec.set_xlabel("Velocity [km/s]")
+
+    # ========= PLOT THE DIFF. VISIBILITIES =========
+    l_ax_dvis = [ax_vis0, ax_vis1, ax_vis2, ax_vis3, ax_vis4, ax_vis5]
+
+    for i in range(6):
+        blname = d_master.blname[i]
+        p_color = dic_color[blname]
+
+        if use_vis2:
+            aver_dvis = d_master.vis2[i] ** 0.5
+        else:
+            aver_dvis = d_master.dvis[i]
+        ref_dvis = np.mean(aver_dvis[inCont])
+
+        norm_ref_dvis = False
+        cont_vis_ref = None
+        if norm_ref_dvis:
+            cont_vis_ref = ref_dvis
+        _plot_ind_vis(
+            i,
+            list_dataset,
+            l_ax=l_ax_dvis,
+            plot_vis2=use_vis2,
+            check_weird_file=check_weird_file,
+            cont_vis_ref=cont_vis_ref,
+        )
+
+        ax = l_ax_dvis[i]
+        if i == 0:
+            ax2 = ax.twiny()
+            lambda_min = rest * (1 + (vmax / (c_light / 1e3)))
+            lambda_max = rest * (1 + (-vmax / (c_light / 1e3)))
+            ax2.set_xlim(np.array([lambda_min, lambda_max]))
+            ax2.set_xlabel("Wavelength [µm]", color="k")
+            ax2.tick_params(axis="x", colors="k")
+
+        ax.axvline(0, c="k", ls="--")
+        ax.errorbar(
+            wave_vel,
+            aver_dvis,
+            0.01,
+            color=p_color,
+            zorder=3,
+            **err_pts_style_paper,
+        )
+        ax.axhline(ref_dvis, c="k", ls="--")
+        ax.set_ylim(ref_dvis - delta_dvis, ref_dvis + delta_dvis)
+        ax.set_xlim(-vmax, vmax)
+        ax.axvspan(limit_inline, 500, alpha=0.5, color="lightgray")
+        ax.axvspan(-500, -limit_inline, alpha=0.5, color="lightgray")
+
+        ax.set_ylabel("Diff. Vis.")
+        if i == 5:
+            ax.set_xlabel("Velocity [km/s]")
+
+    return fig
 
 
 def plot_plvis(Model, bl=0):

@@ -1290,6 +1290,8 @@ def fit_flc_spectra(
     norm=True,
     use_model=True,
     tellu=False,
+    force_wBrg=None,
+    force_restframe=None,
 ):
     """
     Fit the spectral line of GRAVITY (`lbdBrg`) and return the fitted line to
@@ -1309,7 +1311,9 @@ def fit_flc_spectra(
     `r_brg` : {float}
         Number of `wBrg` used to determine the in-line region,\n
     `err_cont` : {bool}
-        If True, the continuum is used as error.
+        If True, the continuum is used as error,\n
+    `force_wBrg`: {float}
+        If not None, inLine is computed using the sigma line.
 
     Returns:
     -----------
@@ -1374,6 +1378,11 @@ def fit_flc_spectra(
         restframe = best_param["p1"]
         wBrg = 2.355 * best_param["w1"]
         lcr = 1 + best_param["a1"]
+
+    if force_wBrg is not None:
+        wBrg = force_wBrg
+    if force_restframe is not None:
+        restframe = force_restframe
 
     inLine = np.abs(wl - restframe) < r_brg * wBrg / 2.0
     inCont = (np.abs(wl - restframe) < 0.1) * (np.abs(wl - restframe) > 1.8 * wBrg)

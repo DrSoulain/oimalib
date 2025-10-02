@@ -40,8 +40,9 @@ class Model:
         Spectral resolution in km/s (default: 60 (GRAVITY)).
     """
 
-    def __init__(self, filename, mparam, distance=1, res=75):
+    def __init__(self, filename, mparam, distance=1, res=75, mcfost=True):
         self.filename = filename
+        self.mcfost = mcfost
 
         hdu = fits.open(filename)
 
@@ -70,10 +71,16 @@ class Model:
 
         self.extent = extent
 
-        cube = hdu[0].data[0]
+        if mcfost:
+            cube = hdu[0].data[0]
+        else:
+            cube = hdu[0].data
         self.cube = cube  # Flux data from the model
 
-        waves = hdu[1].data * 1e-3  # wavelengths are in µm
+        try:
+            waves = hdu[1].data * 1e-3  # wavelengths are in µm
+        except Exception:
+            waves = hdu[1].data["wave"] * 1e-3  # wavelengths are in µm
         self.waves = waves
 
         lam0 = hdu[0].header["LAMBDA0"] * 1e-3
@@ -120,7 +127,7 @@ class Model:
 
         if display:
             plt.figure()
-            plt.plot(self.waves, np.squeeze(fluxrat))
+            plt.plot(self.waves * 1e-3, np.squeeze(fluxrat))
             plt.xlabel("Wavelength [µm]")
             plt.ylabel("Norm. flux")
             plt.tight_layout()

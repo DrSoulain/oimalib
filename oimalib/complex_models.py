@@ -36,6 +36,15 @@ def model_acc_mag(x, param):
             | (param["pa"] <= 0)
         ):
             Y = np.ones_like(Y)
+    elif "fh" in list(param.keys()):
+        fhalo = param["fh"]
+        fmag = 1 - fhalo
+        vis_mag = visGaussianDisk(u, v, wl, param)
+        vis_halo = 0.0
+        tot_vis = fmag * vis_mag + fhalo * vis_halo
+        Y = np.squeeze(abs(tot_vis))
+        if (param["fh"] > 1) | (param["fh"] < 0):
+            Y = np.ones_like(Y)
     else:
         Y = np.squeeze(abs(visGaussianDisk(u, v, wl, param)))
     return Y
