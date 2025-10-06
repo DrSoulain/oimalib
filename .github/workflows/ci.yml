@@ -9,7 +9,7 @@ on:
     - main
   workflow_dispatch:
 
-  jobs:
+jobs:
   tests:
     strategy:
       fail-fast: false
@@ -21,6 +21,8 @@ on:
         python-version:
         - '3.10'
         - '3.13'
+        sync-args:
+        - ''
         include:
         - os: ubuntu-22.04
           python-version: 3.10.0
@@ -39,7 +41,10 @@ on:
     - name: Build
       run: uv sync --no-editable --group test ${{ matrix.sync-args }}
     - name: Run tests
-      run: uv run --no-sync pytest --color=yes coverage xml -o coverage.xml coverage report -m
+      run: |
+        uv run --no-sync pytest --color=yes
+        uv run --no-sync coverage xml -o coverage.xml
+        uv run --no-sync coverage report -m
     - name: Upload coverage artifact
       uses: actions/upload-artifact@v4
       with:
@@ -52,7 +57,6 @@ on:
         files: coverage.xml
         flags: unittests
         name: codecov-report
-
   type-check:
     runs-on: ubuntu-latest
     name: type check
