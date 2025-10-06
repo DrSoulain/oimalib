@@ -1,3 +1,17 @@
+"""
+OIMALIB: Optical Interferometry Modeling and Analysis Library.
+
+This package provides tools for modeling, analyzing, and visualizing
+optical interferometric data. It includes modules for handling OIFITS
+files, computing observables, and generating synthetic datasets.
+
+Submodules:
+    - oifits: read and write OIFITS files
+    - plotting: visualize interferometric observables
+    - modelling: generate and fit physical models
+    - _cli: command-line interface entry point
+"""
+
 from .alex import cube_interpolator
 from .classPure import OiPure
 from .data_processing import select_data, spectral_bin_data, temporal_bin_data
