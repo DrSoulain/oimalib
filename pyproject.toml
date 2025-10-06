@@ -127,3 +127,6 @@ warn_unused_ignores = true
 warn_unreachable = true
 show_error_context = true
 show_error_codes = true
+
+[tool.uv]
+repositories.testpypi = "https://test.pypi.org/legacy/"
