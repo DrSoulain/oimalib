@@ -118,3 +118,12 @@ source = ["oimalib"]
 
 [tool.coverage.report]
 omit = ["oimalib/tests/*"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_configs = true
+warn_unused_ignores = true
+warn_unreachable = true
+show_error_context = true
+show_error_codes = true
