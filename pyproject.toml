@@ -39,6 +39,7 @@ dependencies = [
     "munch",
     "pandas",
     "termcolor",
+    "tqdm",
 ]
 
 [project.optional-dependencies]
