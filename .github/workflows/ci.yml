@@ -42,7 +42,7 @@ jobs:
       run: uv sync --no-editable --group test ${{ matrix.sync-args }}
     - name: Run tests
       run: |
-        uv run --no-sync pytest --color=yes
+        uv run --no-sync pytest --color=yes --disable-warnings
         uv run --no-sync coverage xml -o coverage.xml
         uv run --no-sync coverage report -m
     - name: Upload coverage artifact
