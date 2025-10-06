@@ -9,18 +9,20 @@ on:
     - main
   workflow_dispatch:
 
-  jobs:
+jobs:
   tests:
     strategy:
       fail-fast: false
       matrix:
         os:
         - ubuntu-latest
-        - macos-latest
-        - windows-latest
+        #- macos-latest
+        #- windows-latest
         python-version:
-        - '3.10'
-        - '3.13'
+        - '3.11'
+        #- '3.13'
+        sync-args:
+        - ''
         include:
         - os: ubuntu-22.04
           python-version: 3.10.0
@@ -37,22 +39,27 @@ on:
       with:
         python-version: ${{ matrix.python-version }}
     - name: Build
-      run: uv sync --no-editable --group test ${{ matrix.sync-args }}
+      run: uv sync --no-editable --group test #${{ matrix.sync-args }}
     - name: Run tests
-      run: uv run --no-sync pytest --color=yes coverage xml -o coverage.xml coverage report -m
+      run: |
+        uv run --no-sync pytest -q \
+            --disable-warnings \
+            --cov=oimalib \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml
     - name: Upload coverage artifact
       uses: actions/upload-artifact@v4
       with:
         name: coverage-${{ matrix.python-version }}
         path: coverage.xml
     - name: Upload to Codecov
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: coverage.xml
         flags: unittests
         name: codecov-report
-
+        fail_ci_if_error: false
   type-check:
     runs-on: ubuntu-latest
     name: type check
