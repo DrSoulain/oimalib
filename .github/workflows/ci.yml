@@ -57,7 +57,7 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: ./coverage.xml
-        flags: unittests
+        slug: DrSoulain/oimalib
         name: codecov-report
         fail_ci_if_error: false
   type-check:
