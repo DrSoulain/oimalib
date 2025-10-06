@@ -4,6 +4,7 @@ Created on Wed Nov  4 13:14:23 2015
 @author: asoulain
 """
 
+import contextlib
 import sys
 
 import numpy as np
@@ -16,6 +17,10 @@ from oimalib.binary import getBinaryPos, kepler_solve
 from oimalib.fourier import shiftFourier
 from oimalib.tools import computeBinaryRatio, mas2rad, planck_law, rad2mas
 
+MAX_INCLINATION_DEG = 90
+MAX_POSITION_ANGLE_DEG = 180
+TOP_COMPONENTS = 3
+
 
 def norm(x, y):
     return np.sqrt(x**2 + y**2)
@@ -25,25 +30,25 @@ def model_acc_mag(x, param):
     u = x[0]
     v = x[1]
     wl = x[2]
-    if list(param.keys())[0] == "diam":
+    if "diam" in param:
         Y = np.squeeze(abs(visUniformDisk(u, v, wl, param)))
-    elif "incl" in list(param.keys()):
+    elif "incl" in param:
         Y = np.squeeze(abs(visEllipticalGaussianDisk2(u, v, wl, param)))
         if (
-            (param["incl"] >= 90)
-            | (param["incl"] < 0)
-            | (param["pa"] >= 180)
-            | (param["pa"] <= 0)
+            (param["incl"] >= MAX_INCLINATION_DEG)
+            or (param["incl"] < 0)
+            or (param["pa"] >= MAX_POSITION_ANGLE_DEG)
+            or (param["pa"] <= 0)
         ):
             Y = np.ones_like(Y)
-    elif "fh" in list(param.keys()):
+    elif "fh" in param:
         fhalo = param["fh"]
         fmag = 1 - fhalo
         vis_mag = visGaussianDisk(u, v, wl, param)
         vis_halo = 0.0
         tot_vis = fmag * vis_mag + fhalo * vis_halo
         Y = np.squeeze(abs(tot_vis))
-        if (param["fh"] > 1) | (param["fh"] < 0):
+        if (param["fh"] > 1) or (param["fh"] < 0):
             Y = np.ones_like(Y)
     else:
         Y = np.squeeze(abs(visGaussianDisk(u, v, wl, param)))
@@ -69,7 +74,7 @@ def _elong_gauss_disk(u, v, a=1.0, cosi=1.0, pa=0.0):
     # tmp_f = np.exp(-1 * (np.pi * q * a) ** 2 * ((np.cos(psi - theta) * cos_i) ** 2 +
     #                                             (np.sin(psi - theta) ** 2)) / np.log(2))
 
-    return np.exp(-np.pi**2 * aq2 / (np.log(2))).astype(complex)
+    return np.exp(-(np.pi**2) * aq2 / (np.log(2))).astype(complex)
 
 
 def _elong_lorentz_disk(u, v, a, cosi, pa):
@@ -80,7 +85,7 @@ def _elong_lorentz_disk(u, v, a, cosi, pa):
     return np.exp(-(2 * np.pi * aq) / np.sqrt(3)).astype(complex)
 
 
-def _elong_ring(u, v, a=1.0, cosi=1.0, pa=0.0, c1=0.0, s1=0.0):
+def _elong_ring(u, v, a=1.0, cosi=1.0, pa=0.0, *, c1=0.0, s1=0.0):
     """
     Return the complex visibility of an elongated ring
     of size a cosi,
@@ -104,10 +109,7 @@ def _elong_ring(u, v, a=1.0, cosi=1.0, pa=0.0, c1=0.0, s1=0.0):
     rho1 = np.sqrt(c1**2 + s1**2)
     phi1 = np.arctan2(-c1, s1) + np.pi / 2
 
-    if rho1 == 0:
-        mod = 0
-    else:
-        mod = -1.0j * rho1 * np.cos(psi - phi1) * special.jv(1, z)
+    mod = 0 if rho1 == 0 else -1j * rho1 * np.cos(psi - phi1) * special.jv(1, z)
 
     # Visibility
     v = special.jv(0, z) + mod
@@ -257,10 +259,7 @@ def visGaussianDisk(Utable, Vtable, Lambda, param):
     r2 = ((np.pi * q * fwhm) ** 2) / (4 * np.log(2.0))
     C_centered = np.exp(-r2)
 
-    if x0 == y0 == 0:
-        C = C_centered
-    else:
-        C = shiftFourier(Utable, Vtable, Lambda, C_centered, x0, y0)
+    C = C_centered if x0 == y0 == 0 else shiftFourier(Utable, Vtable, Lambda, C_centered, x0, y0)
     return C
 
 
@@ -508,9 +507,7 @@ def visLazareff(Utable, Vtable, Lambda, param):
         cj = 0
         sj = 0
 
-    Vring = (
-        _elong_ring(u, v, a=semi_majorAxis, cosi=elong, pa=pa, c1=cj, s1=sj) * Vkernel
-    )
+    Vring = _elong_ring(u, v, a=semi_majorAxis, cosi=elong, pa=pa, c1=cj, s1=sj) * Vkernel
 
     ks = param["ks"]
     kc = param["kc"]
@@ -610,19 +607,14 @@ def visLazareff_halo(Utable, Vtable, Lambda, param):
     r_out = mas2rad(ar + param_ker2["diam"] / 2)
     f_out = param.get("fout", 0)
 
-    Vrim = (
-        _elong_ring(u, v, a=semi_majorAxis, cosi=elong, pa=pa, c1=cj, s1=sj) * Vkernel
-    )
+    Vrim = _elong_ring(u, v, a=semi_majorAxis, cosi=elong, pa=pa, c1=cj, s1=sj) * Vkernel
 
     if f_out == 0:
         Vdisk_out = 0
+    elif param_ker2["diam"] != 0:
+        Vdisk_out = _elong_ring(u, v, a=r_out, cosi=elong, pa=pa, c1=cj2, s1=sj2) * Vkernel2
     else:
-        if param_ker2["diam"] != 0:
-            Vdisk_out = (
-                _elong_ring(u, v, a=r_out, cosi=elong, pa=pa, c1=cj2, s1=sj2) * Vkernel2
-            )
-        else:
-            Vdisk_out = 0
+        Vdisk_out = 0
 
     ks = param.get("ks", 0)
     kc = param.get("kc", 0)
@@ -740,11 +732,7 @@ def visLazareff_clump(Utable, Vtable, Lambda, param):
 
     p_clump = {"x0": x0_clump, "y0": y0_clump}
 
-    s3 = (
-        ratio_clump
-        * fc_lambda[:, None]
-        * visPointSource(Utable, Vtable, Lambda, p_clump)
-    )
+    s3 = ratio_clump * fc_lambda[:, None] * visPointSource(Utable, Vtable, Lambda, p_clump)
 
     ftot = fs_lambda + fh_lambda + fc_lambda
     return (s1 + s2 + s3) / ftot[:, None]
@@ -1068,7 +1056,9 @@ def visDebrisDisk(Utable, Vtable, Lambda, param):
     p_s2 = {"x0": sep * np.cos(theta), "y0": sep * np.sin(theta)}
 
     print(
-        f" star = {round(rel_star, 4)*1e2} %, disk = {round(rel_disk, 4)*1e2} %, planet = {round(rel_planet, 4)*1e2} %"
+        f" star = {round(rel_star, 4) * 1e2} %, "
+        f"disk = {round(rel_disk, 4) * 1e2} %, "
+        f"planet = {round(rel_planet, 4) * 1e2} %"
     )
     s1 = rel_star * visPointSource(Utable, Vtable, Lambda, p_s1)
     s2 = rel_disk * C
@@ -1122,13 +1112,9 @@ def visMultipleRing(Utable, Vtable, Lambda, param):
         Utable, Vtable, Lambda, {"fwhm": thickness1, "x0": 0.0, "y0": 0.0}
     )
 
-    C2 = visGaussianDisk(
-        Utable, Vtable, Lambda, {"fwhm": thickness2, "x0": 0.0, "y0": 0.0}
-    )
+    C2 = visGaussianDisk(Utable, Vtable, Lambda, {"fwhm": thickness2, "x0": 0.0, "y0": 0.0})
 
-    C3 = visGaussianDisk(
-        Utable, Vtable, Lambda, {"fwhm": thickness3, "x0": 0.0, "y0": 0.0}
-    )
+    C3 = visGaussianDisk(Utable, Vtable, Lambda, {"fwhm": thickness3, "x0": 0.0, "y0": 0.0})
 
     f1 = 1
     f2 = param.get("f2", 0)
@@ -1303,10 +1289,7 @@ def _compute_param_elts(
     dwall2 = (px1**2 + py1**2) ** 0.5
 
     lim = rounds * rad2mas(step)
-    if limit_speed:
-        limit_speed_cond = (dwall1 <= lim) & (dwall2 <= lim)
-    else:
-        limit_speed_cond = [True] * len(dwall1)
+    limit_speed_cond = (dwall1 <= lim) & (dwall2 <= lim) if limit_speed else [True] * len(dwall1)
 
     if display:
         tmp = np.linspace(0, 2 * np.pi, 300)
@@ -1319,10 +1302,16 @@ def _compute_param_elts(
             color="#0d4c36",
             label="Archimedean spiral",
         )
-        for i in range(len(px1[limit_speed_cond])):
+        for px1_i, px2_i, py1_i, py2_i in zip(
+            px1[limit_speed_cond],
+            px2[limit_speed_cond],
+            py1[limit_speed_cond],
+            py2[limit_speed_cond],
+            strict=False,
+        ):
             plt.plot(
-                [px1[i], px2[i]],
-                [py1[i], py2[i]],
+                [px1_i, px2_i],
+                [py1_i, py2_i],
                 "-",
                 color="#00b08b",
                 alpha=0.5,
@@ -1336,9 +1325,7 @@ def _compute_param_elts(
             label="Spiral wall",
             lw=0.5,
         )
-        plt.plot(
-            px2[limit_speed_cond], py2[limit_speed_cond], "--", color="#ce0058", lw=0.5
-        )
+        plt.plot(px2[limit_speed_cond], py2[limit_speed_cond], "--", color="#ce0058", lw=0.5)
         for j in range(int(rounds)):
             radius = (j + 1) * rad2mas(step)
             prop_limx, prop_limy = radius * np.cos(tmp), radius * np.sin(tmp)
@@ -1433,14 +1420,12 @@ def _compute_param_elts_spec(mjd, param, verbose=True, display=True):
     step2 = np.array(list(step1))
     step3 = np.transpose(step2)
 
-    pr2 = np.array(
-        np.where((abs(dst) == max(abs(dst))) | (abs(dst) == min(abs(dst))) | step3)[0]
-    )
+    pr2 = np.array(np.where((abs(dst) == max(abs(dst))) | (abs(dst) == min(abs(dst))) | step3)[0])
     pr2 = pr2[1:]
 
-    N2 = int(len(pr2))
+    N2 = len(pr2)
     if verbose:
-        print("Number of ring in the pinwheel N = %2.1f" % N2)
+        print(f"Number of ring in the pinwheel N = {N2:2.1f}")
 
     # Use only selected rings position (sublimation and production limits applied)
     ruse = r[pr2]
@@ -1486,13 +1471,11 @@ def _compute_param_elts_spec(mjd, param, verbose=True, display=True):
 
 
 def sed_pwhl(wl, mjd, param, verbose=True, display=True):
-    if "a" not in param.keys():
-        tab = getBinaryPos(
-            mjd, param, mjd0=param["mjd0"], revol=1, v=2, au=True, display=False
-        )
+    if "a" not in param:
+        tab = getBinaryPos(mjd, param, mjd0=param["mjd0"], revol=1, v=2, au=True, display=False)
         param["a"] = tab["a"]
 
-    tab_orient, tab_faceon, typei, N2, r_nuc, step, alpha = _compute_param_elts_spec(
+    _tab_orient, tab_faceon, _typei, N2, r_nuc, step, alpha = _compute_param_elts_spec(
         mjd, param, verbose=verbose, display=display
     )
 
@@ -1521,12 +1504,12 @@ def sed_pwhl(wl, mjd, param, verbose=True, display=True):
 
     wl_sed = np.logspace(-7, -3.5, 1000)
     spec_all, spec_all1, spec_all2 = [], [], []
-    for i in range(len(l_Tr)):
-        i_flux = planck_law(l_Tr[i], wl_sed)
+    for temperature, dist in zip(l_Tr, dmas, strict=False):
+        i_flux = planck_law(temperature, wl_sed)
         i_flux_jy = (i_flux * wl_sed**2) / beta
         spectrum_r = param["f_scale_pwhl"] * i_flux_jy
         spec_all.append(spectrum_r)
-        if dmas[i] >= np.cos(alpha / 2.0) * rad2mas(step):
+        if dist >= np.cos(alpha / 2.0) * rad2mas(step):
             spec_all2.append(spectrum_r)
         else:
             spec_all1.append(spectrum_r)
@@ -1546,17 +1529,15 @@ def sed_pwhl(wl, mjd, param, verbose=True, display=True):
     if display:
         plt.figure()
         plt.loglog(wl_sed * 1e6, spec_all1.T, color="grey")
-        try:
+        with contextlib.suppress(ValueError):
             plt.loglog(wl_sed * 1e6, spec_all2.T, color="lightgrey")
-        except ValueError:
-            pass
         plt.loglog(
             wl_sed * 1e6,
             total_sed,
             color="#008080",
             lw=3,
             alpha=0.8,
-            label=r"Total SED (T$_{wien}$ = %i K)" % T_wien,
+            label=rf"Total SED (T$_{{wien}}$ = {T_wien:.0f} K)",
         )
         plt.plot(-1, -1, "-", color="grey", lw=3, label="Illuminated dust")
         plt.plot(-1, -1, "-", color="lightgrey", lw=3, label="Shadowed dust")
@@ -1566,7 +1547,7 @@ def sed_pwhl(wl, mjd, param, verbose=True, display=True):
         plt.ylabel("Blackbodies flux [arbitrary unit]")
 
     if verbose:
-        print("Temperature law: r0 = %2.2f mas, T0 = %i K" % (dmas[0], Tr[0]))
+        print(f"Temperature law: r0 = {dmas[0]:2.2f} mas, T0 = {Tr[0]:.0f} K")
 
     return (
         np.array(spec) / N2,
@@ -1619,7 +1600,7 @@ def visSpiralTemp(
     # Start using the '_compute_param_elts_spec' function to determine the elements
     # parameters composing the spiral. Used to easely get these parameters and
     # determine the SED of the actual elements of the spiral.
-    tab_orient, tab_faceon, typei, N2, r_nuc, step, alpha = _compute_param_elts_spec(
+    tab_orient, tab_faceon, typei, N2, r_nuc, _step, _alpha = _compute_param_elts_spec(
         mjd, param, verbose=verbose, display=display
     )
 
@@ -1637,27 +1618,37 @@ def visSpiralTemp(
         return C
 
     if len(Lambda) != len(x2):
-        for i in range(len(x2)):
+        spiral_params = zip(x2, y2, fwhmx2, fwhmy2, angle2, strict=False)
+        for x0_val, y0_val, major, minor, angle_val in spiral_params:
             list_param.append(
                 {
                     "Lambda": Lambda[0],
-                    "x0": x2[i],
-                    "y0": y2[i],
-                    "majorAxis": fwhmx2[i],
-                    "minorAxis": fwhmy2[i],
-                    "angle": angle2[i],
+                    "x0": x0_val,
+                    "y0": y0_val,
+                    "majorAxis": major,
+                    "minorAxis": minor,
+                    "angle": angle_val,
                 }
             )
     else:
-        for i in range(len(x2)):
+        spiral_params = zip(
+            Lambda,
+            x2,
+            y2,
+            fwhmx2,
+            fwhmy2,
+            angle2,
+            strict=False,
+        )
+        for lambda_val, x0_val, y0_val, major, minor, angle_val in spiral_params:
             list_param.append(
                 {
-                    "Lambda": Lambda[i],
-                    "x0": x2[i],
-                    "y0": y2[i],
-                    "majorAxis": fwhmx2[i],
-                    "minorAxis": fwhmy2[i],
-                    "angle": angle2[i],
+                    "Lambda": lambda_val,
+                    "x0": x0_val,
+                    "y0": y0_val,
+                    "majorAxis": major,
+                    "minorAxis": minor,
+                    "angle": angle_val,
                 }
             )
 
@@ -1669,11 +1660,16 @@ def visSpiralTemp(
         q = param["q"]
         Tr = Tin * (dmas / rad2mas(r_nuc)) ** (-q)
         if verbose:
-            print("Temperature law: r0 = %2.2f mas, T0 = %i K" % (dmas[0], Tr[0]))
+            print(f"Temperature law: r0 = {dmas[0]:2.2f} mas, T0 = {Tr[0]:.0f} K")
         spectrumi = spec
 
     C_centered = visMultipleResolved(
-        Utable, Vtable, Lambda, typei, spectrumi, list_param
+        Utable,
+        Vtable,
+        Lambda,
+        typei,
+        spec=spectrumi,
+        list_param=list_param,
     )
     # print(C_centered.shape)
     x0, y0 = mas2rad(param["x0"]), mas2rad(param["y0"])
@@ -1681,17 +1677,11 @@ def visSpiralTemp(
     return C
 
 
-def visMultipleResolved(Utable, Vtable, Lambda, typei, spec, list_param):
+def visMultipleResolved(Utable, Vtable, Lambda, typei, *, spec, list_param):
     """Compute the complex visibility of a multi-component object."""
     n_obj = len(typei)
-    if type(Utable) == np.float64:
-        nbl = 1
-    else:
-        nbl = len(Utable)
-    if type(Lambda) == np.float64:
-        nwl = 1
-    else:
-        nwl = len(Lambda)
+    nbl = 1 if np.isscalar(Utable) else len(Utable)
+    nwl = 1 if np.isscalar(Lambda) else len(Lambda)
     corrFluxTmp = np.zeros([n_obj, nwl, nbl], dtype=complex)
 
     for i in range(n_obj):
@@ -1715,7 +1705,7 @@ def visMultipleResolved(Utable, Vtable, Lambda, typei, spec, list_param):
             print("Model not yet in VisModels")
         spec2 = spec[i]
         ampli = 1
-        if i < 3:
+        if i < TOP_COMPONENTS:
             spec2 *= ampli
 
         corrFluxTmp[i, :, :] = spec2 * Ci
@@ -1732,18 +1722,15 @@ def visMultipleResolved(Utable, Vtable, Lambda, typei, spec, list_param):
 
 def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
     """
-    Compute a multi-component model of a pinwheel nebulae with:
-    - The pinwheel: composed of a multiple rings, uniform disk or gaussian (`compo`). The shape of the
-    pinwheel is given by the `step`, the `opening_angle`, etc. The fluxes are computed
-    using a blackbodies fallowing a power law temperature (`T_sub`, `r_nuc`, and `q`),
-    - The binary star: computed using binary_integrator package (stellar parameters as `M1`, `M2`, `e`, and
-    `dpc` are required). If not, specify a separation (`s_bin`) to compute your own binary position.
-    The binary relative flux (set by `contrib_star` in [%]) is computed @ 1 µm using
-    blackbodies `T_WR`, `T_OB` and the SED of the pinwheel,
-    - The halo (Optionnal): The pinwheel appeared to be surrounded by a fully
-    resolved environment (similar to YSO halo properties, see Lazareff et al.
-    2017). This contribution is set by `contrib_halo` [%], where the flux is
-    taken from the spiral contribution.
+    Compute a multi-component model of a pinwheel nebula with:
+    - Pinwheel: multiple rings, uniform disks, or gaussian components selected
+      via `compo`. Geometry follows `step`, `opening_angle`, etc. Fluxes come
+      from a blackbody law based on `T_sub`, `r_nuc`, and `q`.
+    - Binary: obtained with `binary_integrator` using `M1`, `M2`, `e`, and `dpc`,
+      or with a manual separation `s_bin`. Relative flux (`contrib_star` in [%])
+      is evaluated at 1 µm from blackbodies `T_WR`, `T_OB`, and the pinwheel SED.
+    - Halo (optional): fully resolved environment (cf. Lazareff et al. 2017)
+      set by `contrib_halo` [%] and drawing flux from the spiral contribution.
     """
 
     # param = param2.copy()
@@ -1767,7 +1754,7 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
     param["incl"] = param["incl"] + 180
     # Binary point source
     # --------------------------------------------------------------------------
-    if ("M1" in param.keys()) & ("M2" in param.keys()):
+    if ("M1" in param) & ("M2" in param):
         tab = getBinaryPos(
             mjd, param, mjd0=param["mjd0"], revol=1, v=2, au=True, display=expert_plot
         )
@@ -1801,22 +1788,15 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
     p_OB = np.mean(p_OB)
     p_WR = np.mean(p_WR)
     if verbose:
-        print(
-            "Binary relative fluxes: WR = {:2.2f} %, OB = {:2.2f} %".format(
-                p_WR * 100, p_OB * 100.0
-            )
-        )
+        print(f"Binary relative fluxes: WR = {p_WR * 100:2.2f} %, OB = {p_OB * 100.0:2.2f} %")
 
     contrib_star = param["contrib_star"] / 100.0
 
-    if isinstance(Lambda, float):
-        wl = np.array([Lambda])
-    else:
-        wl = Lambda
+    wl = np.array([Lambda]) if isinstance(Lambda, float) else Lambda
 
     wl_sed = np.logspace(-7, -3.5, 1000)
     if param["r_nuc"] != 0:
-        input_wl = [wl_0] + list(wl)
+        input_wl = [wl_0, *list(wl)]
         tab_dust_fluxes = sed_pwhl(input_wl, mjd, param, display=False, verbose=False)
         full_sed = tab_dust_fluxes[1]
         wl_sed = tab_dust_fluxes[2]
@@ -1826,13 +1806,11 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
             param["T_WR"], wl_0
         )
 
-        f_binary_wl = p_OB * planck_law(
-            param["T_OB"], wl_sed / 1e6
-        ) + p_WR * planck_law(param["T_WR"], wl_sed / 1e6)
-
-        f_binary_obs = p_OB * planck_law(param["T_OB"], wl) + p_WR * planck_law(
-            param["T_WR"], wl
+        f_binary_wl = p_OB * planck_law(param["T_OB"], wl_sed / 1e6) + p_WR * planck_law(
+            param["T_WR"], wl_sed / 1e6
         )
+
+        f_binary_obs = p_OB * planck_law(param["T_OB"], wl) + p_WR * planck_law(param["T_WR"], wl)
 
     if param["r_nuc"] != 0:
         sed_pwhl_wl = tab_dust_fluxes[0][1, :]
@@ -1840,9 +1818,7 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
         n_elts = len(sed_pwhl_wl)
 
         if contrib_star != 1:
-            scale_star = (f_pinwheel_wl0 / f_binary_wl0) * (
-                contrib_star / (1.0 - contrib_star)
-            )
+            scale_star = (f_pinwheel_wl0 / f_binary_wl0) * (contrib_star / (1.0 - contrib_star))
         else:
             scale_star = 1e6
     else:
@@ -1878,7 +1854,7 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
             color="#af6d04",
             lw=3,
             alpha=0.8,
-            label=r"Pinwheel (T$_{wien}$ = %i K)" % Twien,
+            label=rf"Pinwheel (T$_{{wien}}$ = {Twien:.0f} K)",
         )
         plt.loglog(
             wl_sed,
@@ -1891,10 +1867,8 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
         )
         plt.loglog(l_wl, sed_pwhl_wl, ".", ms=3, color="#222223", zorder=10)
         plt.loglog(wl_sed, tab_dust_fluxes[4], "-", color="grey")
-        try:
+        with contextlib.suppress(ValueError):
             plt.loglog(wl_sed, tab_dust_fluxes[5], "-", color="lightgrey")
-        except ValueError:
-            pass
 
         max_plot = full_sed.max()
         plt.ylim(max_plot / 1e6, max_plot * 1e2)
@@ -1940,15 +1914,15 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
 
     # halo background
     # --------------------------------------------------------------------------
-    if "contrib_halo" in list(param.keys()):
+    if "contrib_halo" in param:
         Fhalo = param["contrib_halo"] / 100.0
         Fpwhl -= Fhalo
 
     if verbose:
         print(
-            "Relative component fluxes: Fstar = {:2.3f} %; Fpwhl = {:2.3f} %, Fenv = {:2.3f} %".format(
-                100 * Fstar, 100 * Fpwhl, 100 * Fhalo
-            )
+            f"Relative component fluxes: Fstar = {100 * Fstar:2.3f} %; "
+            f"Fpwhl = {100 * Fpwhl:2.3f} %, "
+            f"Fenv = {100 * Fhalo:2.3f} %"
         )
 
     # # Visibility
@@ -1966,9 +1940,7 @@ def visPwhl(Utable, Vtable, Lambda, param, verbose=False, expert_plot=False):
         spec=sed_pwhl_wl,
         verbose=verbose,
         display=expert_plot,
-    ) * visGaussianDisk(
-        Utable, Vtable, Lambda, {"fwhm": thickness, "x0": 0.0, "y0": 0.0}
-    )
+    ) * visGaussianDisk(Utable, Vtable, Lambda, {"fwhm": thickness, "x0": 0.0, "y0": 0.0})
 
     vis_OB = p_OB * Fstar[:, None] * visPointSource(Utable, Vtable, wl, param_star_O)
     vis_WR = p_WR * Fstar[:, None] * visPointSource(Utable, Vtable, wl, param_star_WR)

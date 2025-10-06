@@ -4,6 +4,7 @@ Created on Wed Aug  7 16:31:48 2019
 
 @author: asoulain
 """
+
 import math
 import pickle
 from bisect import bisect_left, insort
@@ -11,33 +12,30 @@ from collections import deque
 from itertools import islice
 
 import numpy as np
-from astropy import constants as cs
+from astropy import constants as cs, units as u
 from astropy.io import fits
 from matplotlib import pyplot as plt
 from munch import munchify
-from uncertainties import umath, unumpy
+from uncertainties import ufloat, umath, unumpy
+
+BRG_CONT_WINDOWS = 0.1
+BRG_CORE_WINDOWS = 0.002
 
 
 def decompress_pickle(file):
-    pikd = open(file, "rb")
-    data = pickle.load(pikd)
-    pikd.close()
-    return data
+    with open(file, "rb") as pikd:
+        return pickle.load(pikd)
 
 
 def compressed_pickle(title, data):
-    pikd = open(title + ".dpy", "wb")
-    pickle.dump(data, pikd, 4)
-    pikd.close()
+    with open(f"{title}.dpy", "wb") as pikd:
+        pickle.dump(data, pikd, protocol=4)
 
 
 def cart2pol(x, y):
     rho = np.sqrt(x**2 + y**2)
     phi = np.arctan2(x, y)
-    if np.rad2deg(phi) < 0:
-        phi_deg = 360 + np.rad2deg(phi)
-    else:
-        phi_deg = np.rad2deg(phi)
+    phi_deg = 360 + np.rad2deg(phi) if np.rad2deg(phi) < 0 else np.rad2deg(phi)
     return (rho, phi_deg)
 
 
@@ -74,7 +72,7 @@ def incl2elong(incl):
     try:
         print(f"elong = {elong.nominal_value:2.3f} +/- {elong.std_dev:2.3f}")
     except AttributeError:
-        print("elong = %2.2f" % elong)
+        print(f"elong = {elong:2.2f}")
     return elong
 
 
@@ -114,14 +112,8 @@ def planck_law(T, wl, norm=False):
     P = (4 * np.pi**2) * sigma * T**4
 
     # print(T, wl)
-    B = (
-        (2 * h * c**2 * wl**-5) / (np.exp(h * c / (wl * k * T)) - 1)
-    ) / 1e6  # W/m2/micron
-    if norm:
-        res = B / P  # kW/m2/sr/m
-    else:
-        res = B
-    return res
+    B = ((2 * h * c**2 * wl**-5) / (np.exp(h * c / (wl * k * T)) - 1)) / 1e6  # W/m2/micron
+    return B / P if norm else B  # kW/m2/sr/m
 
 
 def _running_median(seq, M):
@@ -183,7 +175,7 @@ def nan_interp(yall):
         yall[nans] = np.interp(x(nans), x(~nans), yall[~nans])
 
 
-def normalize_continuum(yall, wave, inCont, degree=3, phase=False, plot=False):
+def normalize_continuum(yall, wave, in_cont, *, degree=3, phase=False, plot=False):
     """
     data                          shape: [nbase,nwave]
     wave in [um]                  shape: [nwave]
@@ -195,7 +187,7 @@ def normalize_continuum(yall, wave, inCont, degree=3, phase=False, plot=False):
     if len(yall.shape) > 1:
         # Deal with multiple dimensions
         for y in yall:
-            normalize_continuum(y, wave, inCont, phase=phase, degree=degree)
+            normalize_continuum(y, wave, in_cont, degree=degree, phase=phase)
     else:
         # Re-center the x array, to stabilize fit numerically
         x = wave - np.mean(wave)
@@ -203,15 +195,14 @@ def normalize_continuum(yall, wave, inCont, degree=3, phase=False, plot=False):
         if phase:
             if plot:
                 plt.figure()
-                plt.plot(x[inCont], yall[inCont], "r.", alpha=0.5)
+                plt.plot(x[in_cont], yall[in_cont], "r.", alpha=0.5)
                 plt.plot(x, yall, color="tab:blue", alpha=0.5)
-                plt.plot(x, np.polyval(np.polyfit(x[inCont], yall[inCont], degree), x))
-                plt.plot(
-                    x, yall - np.polyval(np.polyfit(x[inCont], yall[inCont], degree), x)
-                )
-            yall -= np.polyval(np.polyfit(x[inCont], yall[inCont], degree), x)
+                continuum = np.polyval(np.polyfit(x[in_cont], yall[in_cont], degree), x)
+                plt.plot(x, continuum)
+                plt.plot(x, yall - continuum)
+            yall -= np.polyval(np.polyfit(x[in_cont], yall[in_cont], degree), x)
         else:
-            yall /= np.polyval(np.polyfit(x[inCont], yall[inCont], degree), x)
+            yall /= np.polyval(np.polyfit(x[in_cont], yall[in_cont], degree), x)
     return yall
 
 
@@ -225,9 +216,9 @@ def substract_run_med(spectrum, wave=None, n_box=50, shift_wl=0, div=False):
     """
 
     lbdBrg = 2.16625
-    inCont = (np.abs(wave - lbdBrg) < 0.1) * (np.abs(wave - lbdBrg) > 0.002)
+    inCont = (np.abs(wave - lbdBrg) < BRG_CONT_WINDOWS) * (np.abs(wave - lbdBrg) > BRG_CORE_WINDOWS)
     nan_interp(spectrum)
-    normalize_continuum(spectrum, wave, inCont=inCont)
+    normalize_continuum(spectrum, wave, in_cont=inCont)
     return spectrum, wave
 
 
@@ -244,14 +235,7 @@ def super_gaussian(x, sigma, m, amp=1, x0=0):
     sigma = float(sigma)
     m = float(m)
     return amp * (
-        (
-            np.exp(
-                -(2 ** (2 * m - 1))
-                * np.log(2)
-                * (((x - x0) ** 2) / ((sigma) ** 2)) ** (m)
-            )
-        )
-        ** 2
+        (np.exp(-(2 ** (2 * m - 1)) * np.log(2) * (((x - x0) ** 2) / ((sigma) ** 2)) ** (m))) ** 2
     )
 
 
@@ -291,10 +275,7 @@ def wtmn(values, weights, axis=0, cons=False):
     std = np.sqrt(variance)
     std_err = std / (np.shape(values)[0]) ** 0.5
 
-    if not cons:
-        std_unbias = std_err
-    else:
-        std_unbias = std
+    std_unbias = std_err if not cons else std
     return (mn, std_unbias)
 
 
@@ -363,15 +344,9 @@ def binning_tab(data, nbox=50, force=False, rel_err=0.01, *, cons=False):
                     weigths = 1.0 / range_e_vis2[cond_flag_vis2] ** 2
                     weigth_dvis = 1.0 / range_e_dvis[cond_flag_vis2] ** 2
                     weigth_dphi = 1.0 / range_e_dphi[cond_flag_vis2] ** 2
-                    vis2_med, e_vis2_med = wtmn(
-                        range_vis2[cond_flag_vis2], weigths, cons=cons
-                    )
-                    dvis_med, e_dvis_med = wtmn(
-                        range_dvis[cond_flag_vis2], weigth_dvis, cons=cons
-                    )
-                    dphi_med, e_dphi_med = wtmn(
-                        range_dphi[cond_flag_vis2], weigth_dphi, cons=cons
-                    )
+                    vis2_med, e_vis2_med = wtmn(range_vis2[cond_flag_vis2], weigths, cons=cons)
+                    dvis_med, e_dvis_med = wtmn(range_dvis[cond_flag_vis2], weigth_dvis, cons=cons)
+                    dphi_med, e_dphi_med = wtmn(range_dphi[cond_flag_vis2], weigth_dphi, cons=cons)
                 else:
                     vis2_med, e_vis2_med = np.nan, np.nan
                     dvis_med, e_dvis_med = np.nan, np.nan
@@ -464,10 +439,7 @@ def get_dvis(data, bounds=None):
     if bounds is None:
         bounds = [2.14, 2.19]
 
-    if len(data.flux.shape) == 1:
-        spectrum = data.flux
-    else:
-        spectrum = data.flux.mean(axis=0)
+    spectrum = data.flux if len(data.flux.shape) == 1 else data.flux.mean(axis=0)
 
     wl = data.wl * 1e6
 
@@ -556,9 +528,9 @@ def get_mis(inc_in=None, pa_in=None, inc_out=None, pa_out=None):
     pa_out          : float
                       Position angle of the outer disk [radian]
     """
-    cos_mis = np.sin(inc_in) * np.sin(inc_out) * np.cos(pa_in - pa_out) + np.cos(
-        inc_in
-    ) * np.cos(inc_out)
+    cos_mis = np.sin(inc_in) * np.sin(inc_out) * np.cos(pa_in - pa_out) + np.cos(inc_in) * np.cos(
+        inc_out
+    )
     mis = np.arccos(cos_mis)
 
     return mis
@@ -627,18 +599,16 @@ def get_misalignment(
     i_out,
     pa_in,
     pa_out,
+    *,
     e_i_in=0,
     e_i_out=0,
     e_pa_in=0,
     e_pa_out=0,
-    *,
     Rout=None,
     h=None,
 ):
     """Compute the misalignement angle and the line connecting the two
     projected shadow."""
-    from uncertainties import ufloat, unumpy
-
     # Orientation angle of inner and outer disks
 
     i1 = ufloat(i_in, e_i_in) * np.pi / 180.0
@@ -650,9 +620,9 @@ def get_misalignment(
     pa_in = ufloat(pa_in, e_pa_in) * np.pi / 180.0
     pa_out = ufloat(pa_out, e_pa_out) * np.pi / 180.0
 
-    cos_mis = unumpy.sin(inc_in) * unumpy.sin(inc_out) * unumpy.cos(
-        pa_in - pa_out
-    ) + unumpy.cos(inc_in) * unumpy.cos(inc_out)
+    cos_mis = unumpy.sin(inc_in) * unumpy.sin(inc_out) * unumpy.cos(pa_in - pa_out) + unumpy.cos(
+        inc_in
+    ) * unumpy.cos(inc_out)
 
     mis = unumpy.arccos(cos_mis) * 180 / np.pi
     misa = unumpy.arccos(cos_mis)
@@ -739,17 +709,17 @@ def fluxToJy(flux, wl, alpha, reverse=False):
     Units :
     -----
 
-    Constant conversion depend of Fλ unit :
+    Constant conversion depends on F_lambda unit :
 
-    =======================   =====   ========
-    ``Fλ measured in``        α       β
-    =======================   =====   ========
-    W/m2/m                    0       3×10-6
-    W/m2/μm                   1       3×10–12
-    W/cm2/μm                  2       3×10–16
-    erg/sec/cm2/μm            3       3×10–9
-    erg/sec/cm2/Å             4       3×10–13
-    =======================   =====   ========
+    ==========================   =====   ========
+    ``F_lambda measured in``     alpha   beta
+    ==========================   =====   ========
+    W/m2/m                       0       3x10-6
+    W/m2/um                      1       3x10-12
+    W/cm2/um                     2       3x10-16
+    erg/sec/cm2/um               3       3x10-9
+    erg/sec/cm2/Angstrom         4       3x10-13
+    ==========================   =====   ========
 
     References :
     ----------
@@ -758,30 +728,39 @@ def fluxToJy(flux, wl, alpha, reverse=False):
     [2] Wikipedia blackbody https://en.wikipedia.org/wiki/Black_body
     """
 
-    if alpha == 0:
-        beta = 3e-6
-    elif alpha == 1:
-        beta = 3e-12
-    elif alpha == 2:
-        beta = 3e-16
-    elif alpha == 3:
-        beta = 3e-9
-    elif alpha == 4:
-        beta = 3e-13
-    else:
+    beta_map = {
+        0: 3e-6,
+        1: 3e-12,
+        2: 3e-16,
+        3: 3e-9,
+        4: 3e-13,
+    }
+
+    try:
+        beta = beta_map[alpha]
+    except KeyError:
         print("Bad unit of flux")
         return None
 
     wl2 = wl * 1e6  # wl2 in micron
-    if reverse:
-        out = (flux * beta) / wl2**2
-    else:
-        out = (flux * wl2**2) / beta
+    out = flux * beta / wl2**2 if reverse else flux * wl2**2 / beta
     return out
 
 
 def compute_yso_carac(
-    B, rs, ms, ls, rbrg=5, mdot=None, P=9, magK=5, ew=None, d=160.3, Tsub=1500, Q=None
+    B,
+    rs,
+    ms,
+    ls,
+    *,
+    rbrg=5,
+    mdot=None,
+    P=9,
+    magK=5,
+    ew=None,
+    d=160.3,
+    Tsub=1500,
+    Q=None,
 ):
     """Compute the caracteristic radius of YSO. Truncation radius and
     corotation radius.
@@ -799,25 +778,20 @@ def compute_yso_carac(
     `r_tr` {float}: Truncation radius [with units],\n
     `r_co` {float}: Corotation radius [with units],\n
     """
-    from astropy import constants as cons
-    from astropy import units as u
-
     if isinstance(B, list):
         B = np.array(B)
 
-    R2 = rs / 2.0
-    M05 = ms / 0.5
+    rs / 2.0
+    ms / 0.5
 
     P = P * u.d
     omega = 2 * np.pi / P.to(u.s)
-    r_co = (cons.G * ms * cons.M_sun / (omega**2)) ** (1 / 3.0)
+    r_co = (cs.G * ms * cs.M_sun / (omega**2)) ** (1 / 3.0)
 
     unit_flux = u.W / u.m**2 / u.micron
     fjy = MagToJy(magK, "K")  # Jy
     # alpha = 1 used to convert flux in W/m2/µm
     fk = fluxToJy(fjy, 2.159e-6, alpha=1, reverse=True) * unit_flux
-
-    from uncertainties import ufloat
 
     d = d * u.pc
     ew = ew * u.micron
@@ -826,12 +800,12 @@ def compute_yso_carac(
 
     # Uncertainties
     uew = ufloat(ew.value, ew.value * 0.01)
-    print(f"EW = {uew*1e-6*1e10}")
+    print(f"EW = {uew * 1e-6 * 1e10}")
     err_d = 0.4 * u.pc
     ud = ufloat(d.to(u.m).value, err_d.to(u.m).value)
     ulk = uew * fk.value * 4 * np.pi * ud**2
 
-    ulk_sun = ulk / cons.L_sun.value
+    ulk_sun = ulk / cs.L_sun.value
 
     rs = rs * u.R_sun
     ms = ms * u.M_sun
@@ -848,9 +822,9 @@ def compute_yso_carac(
         ub = ufloat(4.02, 0.51)  # alcala+17
 
     uLacc = 10 ** (ua * umath.log10(ulk_sun) + ub)
-    uLacc_w = uLacc * cons.L_sun
+    uLacc_w = uLacc * cs.L_sun
 
-    Macc = 1.25 * Lacc.to(u.W) * rs.to(u.m) / (cons.G * ms.to(u.kg))
+    Macc = 1.25 * Lacc.to(u.W) * rs.to(u.m) / (cs.G * ms.to(u.kg))
     Macc = Macc.to(u.M_sun / u.year)
 
     urs = ufloat(rs.to(u.m).value, 0.15 * rs.to(u.m).value)
@@ -860,12 +834,12 @@ def compute_yso_carac(
     uP = ufloat(P.to(u.s).value, 0.00555 * P.to(u.s).value)
     uomega = 2 * np.pi / uP
 
-    ur_co = (cons.G * ums2 * cons.M_sun / uomega**2) ** (1 / 3.0) / cons.au.value
+    ur_co = (cs.G * ums2 * cs.M_sun / uomega**2) ** (1 / 3.0) / cs.au.value
 
     urbrg = ufloat(rbrg, 1)
-    uMacc = (1 - (1 / urbrg)) ** -1 * uLacc_w.value * urs / (cons.G.value * ums)
+    uMacc = (1 - (1 / urbrg)) ** -1 * uLacc_w.value * urs / (cs.G.value * ums)
 
-    uMacc_si = uMacc / cons.M_sun.value * 60 * 60 * 24 * 365.25
+    uMacc_si = uMacc / cs.M_sun.value * 60 * 60 * 24 * 365.25
 
     log_umacc = umath.log10(uMacc_si)
 
@@ -878,15 +852,10 @@ def compute_yso_carac(
     print("\nMass accretion rate:")
     print("--------------------")
     print(f"flux = {fjy:2.3f} Jy ({fk.value:2.1e} W/m2/µm)")
-    print(f"Lline = {ulk} W ({ulk_sun*1e4} Lsun)")
+    print(f"Lline = {ulk} W ({ulk_sun * 1e4} Lsun)")
     print(f"Lacc = {uLacc} Lsun")
     print(f"Macc = {uMacc_si} Msun/yr (log(Macc) = {log_umacc})")
     print(f"Macc = {m}^+{err_sup}_-{err_inf} Msun/yr (log(Macc) = {log_umacc})")
-
-    if mdot is not None:
-        Mdot8 = mdot / 1e-8
-    else:
-        Mdot8 = Macc.value / 1e-8
 
     # r_tr = (
     #     12.6 * (B ** (4 / 7) * R2 ** (12.0 / 7)) / (M05 ** (1 / 7) * Mdot8 ** (2 / 7))
@@ -900,14 +869,10 @@ def compute_yso_carac(
     uM05 = ums2 / 0.5
     uMdot8 = uMacc_si / 1e-8
 
-    ur_tr = (
-        12.6
-        * (uB ** (4 / 7) * uR2 ** (12.0 / 7))
-        / (uM05 ** (1 / 7) * uMdot8 ** (2 / 7))
-    )
+    ur_tr = 12.6 * (uB ** (4 / 7) * uR2 ** (12.0 / 7)) / (uM05 ** (1 / 7) * uMdot8 ** (2 / 7))
 
     ur_tr_rstar = ur_tr / urs2
-    ur_tr_au = ur_tr * cons.R_sun.to(u.au).value
+    ur_tr_au = ur_tr * cs.R_sun.to(u.au).value
 
     r_co = np.round(r_co.to(u.au).value, 2) * u.au
 
@@ -964,10 +929,12 @@ def convert_ind_data(dataset, wave_lim=None, corr_tellu=False):
     return dataset2
 
 
-def plot_circle(r, x0=0, y0=0, ax=None, color="k", ls="-", label=""):
+def plot_circle(r, center, ax=None, color="k", label=""):
+    x0 = center[0]
+    y0 = center[1]
     theta_model = np.linspace(0, 2 * np.pi, 100)
     x_star = r * np.sin(theta_model)
     y_star = r * np.cos(theta_model)
     if ax is None:
         ax = plt.gca()
-    ax.plot(x0 + x_star, y0 + y_star, color=color, ls=ls, label=label)
+    ax.plot(x0 + x_star, y0 + y_star, color=color, label=label)

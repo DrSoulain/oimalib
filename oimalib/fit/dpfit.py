@@ -9,6 +9,8 @@ Fitting tools (developped by A. Merand).
 
 --------------------------------------------------------------------
 """
+
+import contextlib
 import time
 from functools import reduce
 
@@ -50,7 +52,7 @@ def leastsqFit(
     - follow=[...] list of parameters to "follow" in the fit, i.e. to print in
       verbose mode
 
-    - fitOnly is a LIST of keywords to fit. By default, it fits all
+        if not (np.isscalar(params[k]) and not isinstance(params[k], str)):
       parameters in 'params'. Alternatively, one can give a list of
       parameters not to be fitted, as 'doNotFit='
 
@@ -101,7 +103,7 @@ def leastsqFit(
     NaNs = []
     for k in fitOnly:
         # if not (type(params[k])==float or type(params[k])==int):
-        if not (np.isscalar(params[k]) and type(params[k]) != str):
+        if not (np.isscalar(params[k]) and not isinstance(params[k], str)):
             NaNs.append(k)
     fitOnly = sorted(list(filter(lambda x: x not in NaNs, fitOnly)))
 
@@ -110,12 +112,12 @@ def leastsqFit(
 
     # -- built fixed parameters dict:
     pfix = {}
-    for k in params.keys():
+    for k in params:
         if k not in fitOnly:
             pfix[k] = params[k]
     if verbose:
-        print("[dpfit] %d FITTED parameters:" % len(fitOnly), end=" ")
-        if len(fitOnly) < 100 or (type(verbose) == int and verbose > 1):
+        print(f"[dpfit] {len(fitOnly)} FITTED parameters:", end=" ")
+        if len(fitOnly) < 100 or (isinstance(verbose, int) and verbose > 1):
             print(fitOnly)
             print("[dpfit] epsfcn=", epsfcn, "ftol=", ftol)
         else:
@@ -133,86 +135,85 @@ def leastsqFit(
         plsq, cov = scipy.optimize.curve_fit(
             _fitFunc2, x, y, pfit, sigma=err, epsfcn=epsfcn, ftol=ftol
         )
-        info, mesg, ier = (
+        info, mesg, _ier = (
             {"nfev": Ncalls, "exec time": time.time() - t0},
             "curve_fit",
             None,
         )
+    elif bounds is None or bounds == {}:
+        # ==== LEGACY! ===========================
+        if verbose:
+            print("[dpfit] using scipy.optimize.leastsq")
+        plsq, cov, info, mesg, _ier = scipy.optimize.leastsq(
+            _fitFunc,
+            pfit,
+            args=(
+                fitOnly,
+                x,
+                y,
+                err,
+                func,
+                pfix,
+                verbose,
+                follow,
+            ),
+            full_output=True,
+            epsfcn=epsfcn,
+            ftol=ftol,
+            maxfev=maxfev,
+        )
+        info["exec time"] = time.time() - t0
+        mesg = mesg.replace("\n", "")
     else:
-        if bounds is None or bounds == {}:
-            # ==== LEGACY! ===========================
-            if verbose:
-                print("[dpfit] using scipy.optimize.leastsq")
-            plsq, cov, info, mesg, ier = scipy.optimize.leastsq(
-                _fitFunc,
-                pfit,
-                args=(
-                    fitOnly,
-                    x,
-                    y,
-                    err,
-                    func,
-                    pfix,
-                    verbose,
-                    follow,
-                ),
-                full_output=True,
-                epsfcn=epsfcn,
-                ftol=ftol,
-                maxfev=maxfev,
-            )
-            info["exec time"] = time.time() - t0
-            mesg = mesg.replace("\n", "")
-        else:
-            method = "L-BFGS-B"
+        method = "L-BFGS-B"
 
-            # method = 'SLSQP'
-            # method = 'TNC'
-            # method = 'trust-constr'
-            if verbose:
-                print("[dpfit] using scipy.optimize.minimize (%s)" % method)
-            Bounds = []
-            for k in fitOnly:
-                if k in bounds.keys():
-                    Bounds.append(bounds[k])
-                else:
-                    Bounds.append((-np.inf, np.inf))
+        # method = 'SLSQP'
+        # method = 'TNC'
+        # method = 'trust-constr'
+        if verbose:
+            print(f"[dpfit] using scipy.optimize.minimize ({method})")
+        Bounds = []
+        for k in fitOnly:
+            if k in bounds:
+                Bounds.append(bounds[k])
+            else:
+                Bounds.append((-np.inf, np.inf))
 
-            result = scipy.optimize.minimize(
-                _fitFuncMin,
-                pfit,
-                tol=ftol,
-                options={"maxiter": maxfev},
-                bounds=Bounds,
-                method=method,
-                args=(
-                    fitOnly,
-                    x,
-                    y,
-                    err,
-                    func,
-                    pfix,
-                    verbose,
-                    follow,
-                ),
-            )
-            plsq = result.x
-            # display(result)
-            try:
-                # https://github.com/scipy/scipy/blob/2526df72e5d4ca8bad6e2f4b3cbdfbc33e805865/scipy/optimize/minpack.py#L739
-                # Do Moore-Penrose inverse discarding zero singular values.
-                _, s, VT = np.linalg.svd(result.jac, full_matrices=False)
-                threshold = np.finfo(float).eps * max(result.jac.shape) * s[0]
-                if verbose:
-                    print("[dpfit] zeros in cov?", any(s <= threshold))
-                s = s[s > threshold]
-                VT = VT[: s.size]
-                cov = np.dot(VT.T / s**2, VT)
-            except Exception:
-                cov = np.zeros((len(fitOnly), len(fitOnly)))
-            # ------------------------------------------------------
-            info = {"nfev": Ncalls, "exec time": time.time() - t0}
-            mesg, _ = result.message, None
+        result = scipy.optimize.minimize(
+            _fitFuncMin,
+            pfit,
+            tol=ftol,
+            options={"maxiter": maxfev},
+            bounds=Bounds,
+            method=method,
+            args=(
+                fitOnly,
+                x,
+                y,
+                err,
+                func,
+                pfix,
+                verbose,
+                follow,
+            ),
+        )
+        plsq = result.x
+        # display(result)
+        try:
+            # https://github.com/scipy/scipy/blob/2526df72e5d4ca8bad6e2f4b3cbdfbc33e805865/scipy/optimize/minpack.py#L739
+            # Do Moore-Penrose inverse discarding zero singular values.
+            _, s, VT = np.linalg.svd(result.jac, full_matrices=False)
+            threshold = np.finfo(float).eps * max(result.jac.shape) * s[0]
+            if verbose:
+                print("[dpfit] zeros in cov?", any(s <= threshold))
+            s = s[s > threshold]
+            VT = VT[: s.size]
+            cov = np.dot(VT.T / s**2, VT)
+        except Exception:
+            cov = np.zeros((len(fitOnly), len(fitOnly)))
+        # ------------------------------------------------------
+        info = {"nfev": Ncalls, "exec time": time.time() - t0}
+        mesg, _ = result.message, None
 
     if verbose:
         print("[dpfit]", mesg)
@@ -241,9 +242,7 @@ def leastsqFit(
             if test:
                 if verbose:
                     print(
-                        '[dpfit] \033[31m         parameter "'
-                        + k
-                        + '" does not change CHI2:',
+                        '[dpfit] \033[31m         parameter "' + k + '" does not change CHI2:',
                         end=" ",
                     )
                     print("IT CANNOT BE FITTED\033[0m")
@@ -279,14 +278,12 @@ def leastsqFit(
             reducedChi2 = np.mean(reducedChi2)
 
     if normalizedUncer:
-        try:
+        with contextlib.suppress(Exception):
             cov *= reducedChi2
-        except Exception:
-            pass
 
     # -- uncertainties:
     uncer = {}
-    for k in pfix.keys():
+    for k in pfix:
         if k not in fitOnly:
             uncer[k] = 0  # not fitted, uncertatinties to 0
         else:
@@ -304,7 +301,7 @@ def leastsqFit(
         _ = np.ptp(trackP[k][(3 * n) // 4 :])
         if std2 > 2 * uncer[k] and k not in notsig:
             notconverg.append(k)
-    if len(notconverg) and verbose:
+    if notconverg and verbose:
         print(
             "[dpfit] \033[33mParameters",
             notconverg,
@@ -331,7 +328,7 @@ def leastsqFit(
         cor = cor[:, None] * cor[None, :]
         cor[cor == 0] = 1e-6
         cor = cov / cor
-        for k in trackP.keys():
+        for k in trackP:
             trackP[k] = np.array(trackP[k])
 
         pfix = {
@@ -351,12 +348,10 @@ def leastsqFit(
             "ndof": ndof,
             "doNotFit": doNotFit,
             "covd": {
-                ki: {kj: cov[i, j] for j, kj in enumerate(fitOnly)}
-                for i, ki in enumerate(fitOnly)
+                ki: {kj: cov[i, j] for j, kj in enumerate(fitOnly)} for i, ki in enumerate(fitOnly)
             },
             "cord": {
-                ki: {kj: cor[i, j] for j, kj in enumerate(fitOnly)}
-                for i, ki in enumerate(fitOnly)
+                ki: {kj: cor[i, j] for j, kj in enumerate(fitOnly)} for i, ki in enumerate(fitOnly)
             },
             "normalized uncertainties": normalizedUncer,
             "maxfev": maxfev,
@@ -367,14 +362,12 @@ def leastsqFit(
             "not converging": notconverg,
             "chi2_real": chi2,
         }
-        if type(verbose) == int and verbose > 2 and np.size(cor) > 1:
+        if isinstance(verbose, int) and verbose > 2 and np.size(cor) > 1:
             dispCor(pfix)
     return pfix
 
 
-def _fitFunc(
-    pfit, pfitKeys, x, y, err=None, func=None, pfix=None, verbose=False, follow=None
-):
+def _fitFunc(pfit, pfitKeys, x, y, err=None, func=None, pfix=None, verbose=False, follow=None):
     """
     interface  scipy.optimize.leastsq:
     - x,y,err are the data to fit: f(x) = y +- err
@@ -404,9 +397,9 @@ def _fitFunc(
 
     # -- compute residuals
     if (
-        (type(y) == np.ndarray and type(err) == np.ndarray)
-        or (np.isscalar(y) and type(err) == np.ndarray)
-        or (type(y) == np.ndarray and np.isscalar(err))
+        (type(y) is np.ndarray and type(err) is np.ndarray)
+        or (np.isscalar(y) and type(err) is np.ndarray)
+        or (type(y) is np.ndarray and np.isscalar(err))
         or (np.isscalar(y) and np.isscalar(err))
     ):
         model = func(x, params)
@@ -438,7 +431,7 @@ def _fitFunc(
             if np.isscalar(r):
                 chi2 += r**2
                 N += 1
-                r  # es2.append(r)
+                # r  # es2.append(r)
             else:
                 chi2 += np.sum(np.array(r) ** 2)
                 N += len(r)
@@ -450,21 +443,20 @@ def _fitFunc(
         print(
             "[dpfit]",
             time.asctime(),
-            "%03d/%03d" % (Ncalls, int(Ncalls / len(pfit))),
+            f"{Ncalls:03d}/{int(Ncalls / len(pfit)):03d}",
             end=" ",
         )
-        print("CHI2: %6.4e" % chi2, end="|")
+        print(f"CHI2: {chi2:6.4e}", end="|")
         if follow is None:
             print("")
         else:
             _follow = list(
                 filter(
-                    lambda x: x in params.keys()
-                    and type(params[x]) in [float, np.double],
+                    lambda x: x in params and type(params[x]) in [float, np.double],
                     follow,
                 )
             )
-            print("|".join([k + "=" + "%5.2e" % params[k] for k in _follow]))
+            print("|".join([k + "=" + f"{params[k]:5.2e}" for k in _follow]))
     for i, k in enumerate(pfitKeys):
         if k not in trackP:
             trackP[k] = [pfit[i]]
@@ -478,9 +470,7 @@ def _fitFunc(
     return res
 
 
-def _fitFuncMin(
-    pfit, pfitKeys, x, y, err=None, func=None, pfix=None, verbose=False, follow=None
-):
+def _fitFuncMin(pfit, pfitKeys, x, y, err=None, func=None, pfix=None, verbose=False, follow=None):
     """
     interface  scipy.optimize.minimize:
     - x,y,err are the data to fit: f(x) = y +- err
@@ -509,7 +499,7 @@ def _fitFuncMin(
         err = np.ones(np.array(y).shape)
 
     # -- compute residuals
-    if type(y) == np.ndarray and type(err) == np.ndarray:
+    if isinstance(y, np.ndarray) and isinstance(err, np.ndarray):
         model = func(x, params)
         res = ((np.array(y) - model) / err).flatten()
     else:
@@ -549,13 +539,13 @@ def _fitFuncMin(
 
     if verbose and time.time() > (verboseTime + 10):
         verboseTime = time.time()
-        print("[dpfit]", time.asctime(), "%5d" % Ncalls, end="")
-        print("CHI2: %6.4e" % chi2, end="|")
+        print("[dpfit]", time.asctime(), f"{Ncalls:5d}", end="")
+        print(f"CHI2: {chi2:6.4e}", end="|")
         if follow is None:
             print("")
         else:
-            _follow = list(filter(lambda x: x in params.keys(), follow))
-            print("|".join([k + "=" + "%5.2e" % params[k] for k in _follow]))
+            _follow = list(filter(lambda x: x in params, follow))
+            print("|".join([k + "=" + f"{params[k]:5.2e}" for k in _follow]))
     return chi2
 
 
@@ -580,10 +570,10 @@ def _fitFunc2(x, *pfit, verbose=True, follow=None, errs=None):
 
     if verbose and time.time() > (verboseTime + 10):
         verboseTime = time.time()
-        print("[dpfit]", time.asctime(), "%5d" % Ncalls, end="")
+        print("[dpfit]", time.asctime(), f"{Ncalls:5d}", end="")
         try:
             chi2 = np.sum(res**2) / (len(res) - len(pfit) + 1.0)
-            print("CHI2: %6.4e" % chi2, end="")
+            print(f"CHI2: {chi2:6.4e}", end="")
         except Exception:
             # list of elements
             chi2 = 0
@@ -600,12 +590,12 @@ def _fitFunc2(x, *pfit, verbose=True, follow=None, errs=None):
                     res2.extend(list(r))
 
             res = res2
-            print("CHI2: %6.4e" % (chi2 / float(N - len(pfit) + 1)), end=" ")
+            print(f"CHI2: {chi2 / float(N - len(pfit) + 1):6.4e}", end=" ")
         if follow is None:
             print("")
         else:
-            _follow = list(filter(lambda x: x in params.keys(), follow))
-            print(" ".join([k + "=" + "%5.2e" % params[k] for k in _follow]))
+            _follow = list(filter(lambda x: x in params, follow))
+            print(" ".join([k + "=" + f"{params[k]:5.2e}" for k in _follow]))
 
     return res
 
@@ -623,36 +613,24 @@ def dispBest(fit, pre="", asStr=False, asDict=True, color=True):
     res = ""
 
     maxLength = np.max(np.array([len(k) for k in tmp]))
-    if asDict:
-        format_ = "'%s':"
-    else:
-        format_ = "%s"
+    format_ = "'%s':" if asDict else "%s"
     # -- write each parameter and its best fit, as well as error
     # -- writes directly a dictionary
     for ik, k in enumerate(tmp):
         padding = " " * (maxLength - len(k))
         formatS = format_ + padding
-        if ik == 0 and asDict:
-            formatS = pre + "{" + formatS
-        else:
-            formatS = pre + formatS
+        formatS = pre + "{" + formatS if ik == 0 and asDict else pre + formatS
         if uncer[k] > 0:
             ndigit = max(-int(np.log10(uncer[k])) + 2, 0)
             if asDict:
                 fmt = "%." + str(ndigit) + "f, # +/- %." + str(ndigit) + "f"
             else:
                 fmt = "%." + str(ndigit) + "f +/- %." + str(ndigit) + "f"
-            if color:
-                col = ("\033[94m", "\033[0m")
-            else:
-                col = ("", "")
+            col = ("\x1b[94m", "\x1b[0m") if color else ("", "")
             res += col[0] + formatS % k + fmt % (pfix[k], uncer[k]) + col[1] + "\n"
             # print(formatS%k, fmt%(pfix[k], uncer[k]))
         elif uncer[k] == 0:
-            if color:
-                col = ("\033[97m", "\033[0m")
-            else:
-                col = ("", "")
+            col = ("\x1b[97m", "\x1b[0m") if color else ("", "")
             if isinstance(pfix[k], str):
                 # print(formatS%k , "'"+pfix[k]+"'", ',')
                 res += col[0] + formatS % k + "'" + pfix[k] + "'," + col[1] + "\n"
@@ -688,13 +666,13 @@ def dispCor(fit, ndigit=2, pre="", asStr=False, html=False, maxlen=140):
     if maxlen is not None and nmax + (ndigit + 2) * len(fit["fitOnly"]) + 4 > maxlen:
         ndigit = 0
 
-    fmt = "%%%ds" % nmax
+    fmt = "{:>" + str(nmax) + "}"
 
     def fcount(i):
-        return "%2s" % hex(i)[2:]
+        return f"{hex(i)[2:]:>2}"
 
     def fcount2(i):
-        return "%2d" % i
+        return f"{i:2d}"
 
     if len(fit["fitOnly"]) > 100:
         # -- hexadecimal
@@ -714,44 +692,34 @@ def dispCor(fit, ndigit=2, pre="", asStr=False, html=False, maxlen=140):
         print(pre + " " * (3 + nmax), end=" ")
         for i in range(len(fit["fitOnly"])):
             # print('%2d'%i+' '*(ndigit-1), end=' ')
-            if i % 2 and ndigit < 2:
-                c = "\033[47m"
-            else:
-                c = "\033[0m"
+            c = "\x1b[47m" if i % 2 and ndigit < 2 else "\x1b[0m"
             print(c + count(i) + "\033[0m" + " " * (ndigit), end="")
         print(pre + "")
+    elif html:
+        res = '<table style="width:100%" border="1">\n'
+        res += "<tr>"
+        res += "<th>" + pre + " " * (2 + ndigit + nmax) + " </th>"
+        for i in range(len(fit["fitOnly"])):
+            res += f"<th>{i:2d}" + " " * (ndigit) + "</th>"
+        res += "</tr>\n"
     else:
-        if html:
-            res = '<table style="width:100%" border="1">\n'
-            res += "<tr>"
-            res += "<th>" + pre + " " * (2 + ndigit + nmax) + " </th>"
-            for i in range(len(fit["fitOnly"])):
-                res += "<th>" + "%2d" % i + " " * (ndigit) + "</th>"
-            res += "</tr>\n"
-        else:
-            res = pre + " " * (3 + ndigit // 2 + nmax) + " "
-            for i in range(len(fit["fitOnly"])):
-                # res += '%2d'%i+' '*(ndigit)
-                res += count(i) + " " * (ndigit)
-            res += "\n"
+        res = pre + " " * (3 + ndigit // 2 + nmax) + " "
+        for i in range(len(fit["fitOnly"])):
+            # res += '%2d'%i+' '*(ndigit)
+            res += count(i) + " " * (ndigit)
+        res += "\n"
 
     for i, p in enumerate(fit["fitOnly"]):
-        if i % 2 and ndigit < 2:
-            c = "\033[47m"
-        else:
-            c = "\033[0m"
+        c = "\x1b[47m" if i % 2 and ndigit < 2 else "\x1b[0m"
         if not asStr:
-            print(pre + c + count(i) + ":" + fmt % (p) + "\033[0m", end=" ")
+            print(pre + c + count(i) + ":" + fmt.format(p) + "\033[0m", end=" ")
         elif html:
-            res += "<tr>\n<td>" + pre + fmt % (i, p) + "</td >\n"
+            res += f"<tr>\n<td>{pre}{count(i)}:{fmt.format(p)}</td >\n"
         else:
-            res += pre + fmt % (i, p) + " "
+            res += pre + count(i) + ":" + fmt.format(p) + " "
 
         for j, x in enumerate(fit["cor"][i, :]):
-            if i == j:
-                c = "\033[2m"
-            else:
-                c = "\033[0m"
+            c = "\x1b[2m" if i == j else "\x1b[0m"
             hcol = "#FFFFFF"
             if i != j:
                 if abs(x) >= 0.9:
@@ -786,23 +754,17 @@ def dispCor(fit, ndigit=2, pre="", asStr=False, html=False, maxlen=140):
             else:
                 if ndigit == 0:
                     # tmp = '%2d'%int(round(10*x, 0))
-                    if x < 0:
-                        tmp = "-"
-                    else:
-                        tmp = "+"
+                    tmp = "-" if x < 0 else "+"
                 if ndigit == 1:
                     # tmp = '%2d'%int(round(10*x, 0))
-                    if x < 0:
-                        tmp = "--"
-                    else:
-                        tmp = "++"
+                    tmp = "--" if x < 0 else "++"
                 elif ndigit == 2:
-                    tmp = "%3d" % int(round(100 * x, 0))
+                    tmp = f"{int(round(100 * x, 0)):3d}"
 
             if not asStr:
                 print(c + col + tmp + "\033[0m", end=" ")
             elif html:
-                res += '<td bgcolor="%s">' % hcol + tmp + "</td>\n"
+                res += f'<td bgcolor="{hcol}">' + tmp + "</td>\n"
             else:
                 res += tmp + " "
         if not asStr:
@@ -861,7 +823,7 @@ def _callbackAxes(ax):
     xlim = ax.get_xlim()
     x = np.arange(len(T["reduced chi2"]))
     w = (x >= xlim[0]) * (x <= xlim[1])
-    for k in AX.keys():
+    for k in AX:
         if k == "reduced chi2" and np.max(T[k][w]) / np.min(T[k][w]) > 100:
             AX[k].set_yscale("log")
             AX[k].set_ylim(0.9 * np.min(T[k][w]), 1.1 * np.max(T[k][w]))
@@ -871,7 +833,6 @@ def _callbackAxes(ax):
                 np.min(T[k][w]) - 0.1 * np.ptp(T[k][w]),
                 np.max(T[k][w]) + 0.1 * np.ptp(T[k][w]),
             )
-    return
 
 
 def showFit(fit, fig=99):
@@ -911,9 +872,7 @@ def showFit(fit, fig=99):
         AX[k].set_yscale("log")
 
     # -- plot all parameters:
-    for i, k in enumerate(
-        sorted(filter(lambda x: x != "reduced chi2", fit["track"].keys()))
-    ):
+    for i, k in enumerate(sorted(filter(lambda x: x != "reduced chi2", fit["track"].keys()))):
         r = np.arange(len(fit["track"][k]))
 
         AX[k] = plt.subplot(S[1], S[0], i + 2, sharex=AX["reduced chi2"])
@@ -947,14 +906,9 @@ def showFit(fit, fig=99):
             color="orange",
             alpha=0.2,
         )
-        plt.hlines(
-            fit["best"][k], 0, len(fit["track"][k]) - 1, alpha=0.5, color="orange"
-        )
-        plt.vlines(
-            r0, plt.ylim()[0], plt.ylim()[1], linestyle=":", color="k", alpha=0.5
-        )
-    for k in AX.keys():
+        plt.hlines(fit["best"][k], 0, len(fit["track"][k]) - 1, alpha=0.5, color="orange")
+        plt.vlines(r0, plt.ylim()[0], plt.ylim()[1], linestyle=":", color="k", alpha=0.5)
+    for k in AX:
         AX[k].callbacks.connect("xlim_changed", _callbackAxes)
     plt.tight_layout()
     plt.subplots_adjust(hspace=0)
-    return

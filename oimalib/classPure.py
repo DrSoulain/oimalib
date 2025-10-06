@@ -1,4 +1,5 @@
-import munch
+import contextlib
+
 import numpy as np
 import seaborn as sns
 from matplotlib import pyplot as plt
@@ -47,14 +48,10 @@ class OiPure:
         self.u_dphi_pure = []
         self.target = data.info.Target[0]
         self.mjd = data.info.mjd
-        try:
+        with contextlib.suppress(AttributeError):
             self.part = data.info.part
-        except AttributeError:
-            pass
 
-    def __ufloat_quantities(
-        self, V_tot, e_V_tot, F_tot, V_cont, e_V_cont, dphi_tot, e_dphi_tot
-    ):
+    def __ufloat_quantities(self, V_tot, e_V_tot, F_tot, V_cont, e_V_cont, dphi_tot, e_dphi_tot):
         from uncertainties import ufloat
 
         n = len(V_tot)
@@ -72,13 +69,7 @@ class OiPure:
         u_nominator = (
             abs(self.u_V_tot * self.u_F_tot) ** 2
             + abs(self.u_V_cont) ** 2
-            - (
-                2
-                * self.u_V_tot
-                * self.u_F_tot
-                * self.u_V_cont
-                * unumpy.cos(self.u_dphi_tot)
-            )
+            - (2 * self.u_V_tot * self.u_F_tot * self.u_V_cont * unumpy.cos(self.u_dphi_tot))
         )
 
         u_F_line = self.u_F_tot - 1
@@ -288,7 +279,7 @@ class OiPure:
             }
 
             # Fit the diff amp and phase by a gaussian model (single or double peaks)
-            mod_dvis, fit_dvis = perform_fit_dvis(
+            mod_dvis, _fit_dvis = perform_fit_dvis(
                 self.wl,
                 dvis,
                 e_dvis,
@@ -296,7 +287,7 @@ class OiPure:
                 inCont=None,
                 display=display,
             )
-            mod_dphi, fit_dphi = perform_fit_dphi(
+            mod_dphi, _fit_dphi = perform_fit_dphi(
                 self.wl,
                 dphi,
                 e_dphi,
@@ -354,9 +345,7 @@ class OiPure:
             self.V_cont[ibl] = V_cont
             self.e_V_cont[ibl] = e_V_cont
             # Format the input with error with ufloat
-            self.__ufloat_quantities(
-                V_tot, e_V_tot, F_tot, V_cont, e_V_cont, dphi_tot, e_dphi_tot
-            )
+            self.__ufloat_quantities(V_tot, e_V_tot, F_tot, V_cont, e_V_cont, dphi_tot, e_dphi_tot)
 
             # Compute pure visibility and phase
             self.u_dvis_pure.append(self.__compute_pure_vis())
@@ -493,15 +482,13 @@ class OiPure:
             plt.text(
                 0.95,
                 0.05,
-                r"$\chi^2$=%2.1f" % chi2,
+                rf"$\chi^2$={chi2:2.1f}",
                 transform=ax.transAxes,
                 va="bottom",
                 ha="right",
                 bbox=props2,
             )
-            plt.plot(
-                x_pc_mod, y_pc_mod, lw=1, label="Projected shift (chi2=%2.2f)" % chi2
-            )
+            plt.plot(x_pc_mod, y_pc_mod, lw=1, label=f"Projected shift (chi2={chi2:2.2f})")
             plt.fill_between(x_pc_mod, y_pc_mod1, y_pc_mod2, alpha=0.5)
             # plt.legend(loc=2,)
             plt.axhline(0, lw=1, color="gray")
@@ -655,13 +642,13 @@ class OiPure:
         if len(l_amp) == 0:
             return None
 
-        name_param = list(p0.keys())[0]
+        name_param = next(iter(p0.keys()))
 
-        cprint("\nFit the line size as %s" % name_param, "cyan")
+        cprint(f"\nFit the line size as {name_param}", "cyan")
         cprint("-------------------------", "cyan")
         for i in range(len(l_amp)):
             blname = self.data.blname[i]
-            print("%s Pure amp aver. = " % blname, ufloat(l_amp[i], l_err[i]))
+            print(f"{blname} Pure amp aver. = ", ufloat(l_amp[i], l_err[i]))
         print()
         fit = leastsqFit(
             model_acc_mag,
@@ -689,12 +676,9 @@ class OiPure:
 
         cprint("------------------------------", "magenta")
         cprint(f"r_mag = {radius_mag} mas%s" % txt, "magenta")
+        cprint(f"      = {radius_mag * ufloat(dkpc, 0.0004):.1uf} au%s" % txt, "magenta")
         cprint(
-            f"      = {radius_mag * ufloat(dkpc, 0.0004):.1uf} au%s" % txt, "magenta"
-        )
-        cprint(
-            f"      = {radius_mag * ufloat(dkpc, 0.0004)/ufloat(rstar, 0.15*rstar)} Rs%s"
-            % txt,
+            f"      = {radius_mag * ufloat(dkpc, 0.0004) / ufloat(rstar, 0.15 * rstar)} Rs%s" % txt,
             "magenta",
         )
         cprint("------------------------------", "magenta")
@@ -759,8 +743,8 @@ class OiPure:
         def common_plot(set_flux=False):
             l1 = l2 = ""
             if set_flux:
-                l1 = r"$w$=%2.4f µm" % self.widthline
-                l2 = r"$\lambda_{0}$=%2.4f µm" % self.restframe
+                l1 = rf"$w$={self.widthline:2.4f} µm"
+                l2 = rf"$\lambda_{{0}}$={self.restframe:2.4f} µm"
 
             plt.axvspan(
                 self.restframe - self.widthline / 2.0,
@@ -788,9 +772,9 @@ class OiPure:
             vis_range = [min_dvis, max_dvis]
 
         if phi_max is None:
-            tmp = np.max(
-                [np.max(abs(dphi_pure)), np.max(abs(self.dphi[ibl]))]
-            ) + 5 * np.std(self.dphi[ibl])
+            tmp = np.max([np.max(abs(dphi_pure)), np.max(abs(self.dphi[ibl]))]) + 5 * np.std(
+                self.dphi[ibl]
+            )
             phi_max = np.max([tmp, 1])
 
         plt.figure(figsize=(9, 8))
@@ -813,9 +797,7 @@ class OiPure:
         plt.axhline(1, lw=2, color="gray", alpha=0.2)
         plt.axhline(1 - self.e_flux, lw=2, color="crimson", alpha=0.5, ls="--")
         plt.axhline(1 + self.e_flux, lw=2, color="crimson", alpha=0.5, ls="--")
-        plt.xlim(
-            self.restframe - 5 * self.widthline, self.restframe + 5 * self.widthline
-        )
+        plt.xlim(self.restframe - 5 * self.widthline, self.restframe + 5 * self.widthline)
 
         plt.legend(loc=1, fontsize=10)
 
@@ -912,7 +894,7 @@ class OiPure:
             capsize=1,
         )
 
-        box1 = TextArea(" PA = %2.1f deg" % self.bl_pa[ibl], textprops=dict(color="k"))
+        box1 = TextArea(f" PA = {self.bl_pa[ibl]:2.1f} deg", textprops=dict(color="k"))
         box2 = DrawingArea(22, 22, 0, 0)
 
         el1 = Ellipse(
@@ -947,9 +929,7 @@ class OiPure:
                 alpha=0.1,
             )
         except Exception:
-            print(
-                f"Model not correctly fitted for the phase ({self.data.blname[ibl]})."
-            )
+            print(f"Model not correctly fitted for the phase ({self.data.blname[ibl]}).")
 
         plt.axhline(
             -np.rad2deg(self.e_dphi_tot[ibl]),
@@ -1026,7 +1006,6 @@ class OiPure:
         if ax is None:
             ax = plt.gca()
             plt.figure(figsize=(7.2, 6))
-            noax = True
 
         sc = ax.scatter(
             pcs_east,
@@ -1083,7 +1062,7 @@ class OiPure:
             ax.text(
                 0.1,
                 0.9,
-                s=r"$\phi$=%2.2f" % phase,
+                s=rf"$\phi$={phase:2.2f}",
                 color="k",
                 va="center",
                 ha="left",
@@ -1139,10 +1118,7 @@ class OiPure:
             Y = self.mod_dvis
 
         max_detect = np.max(
-            [
-                abs((Y[ibl] - self.V_cont[ibl]) / self.e_V_cont[ibl])
-                for ibl in range(nbl)
-            ]
+            [abs((Y[ibl] - self.V_cont[ibl]) / self.e_V_cont[ibl]) for ibl in range(nbl)]
         )
 
         wl_in = self.wl[self.inLine]
@@ -1291,7 +1267,7 @@ class OiPure:
         j = 1
         for i in np.argsort(self.data.bl):
             plt.subplot(3, 2, j)
-            plt.title("%s (%i m)" % (self.data.blname[i], self.data.bl[i]))
+            plt.title(f"{self.data.blname[i]} ({self.data.bl[i]} m)")
             dvis = vis2[i] ** 0.5
             dvis_ft = vis2_ft[i] ** 0.5
             vcont = np.mean(dvis[inCont])
@@ -1310,9 +1286,7 @@ class OiPure:
                 alpha=0.6,
             )
             plt.axhspan(vcont - e_vcont, vcont + e_vcont, alpha=0.1)
-            plt.axhspan(
-                vcont_ft - e_vcont_ft, vcont_ft + e_vcont_ft, alpha=0.1, color="#dd8246"
-            )
+            plt.axhspan(vcont_ft - e_vcont_ft, vcont_ft + e_vcont_ft, alpha=0.1, color="#dd8246")
             plt.plot(wl_ft, dvis_ft, "s-", color="#e58f8f", ms=6)
             plt.legend(fontsize=10, loc=3)
             plt.xlim(2.05, 2.3)
@@ -1324,7 +1298,6 @@ class OiPure:
         plt.tight_layout()
 
     def compute_pcs_direct(self, wvl0=2.1661178):
-
         wl_inline = self.wl[self.inLine]
         dphi_pure = unumpy.nominal_values(self.u_dphi_pure)
         e_dphi_pure = unumpy.std_devs(self.u_dphi_pure)

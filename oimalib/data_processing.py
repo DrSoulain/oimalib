@@ -22,7 +22,6 @@ from oimalib.fitting import (
     perform_fit_dvis,
     select_model,
 )
-from oimalib.plotting import err_pts_style, plot_condition
 from oimalib.tools import (
     binning_tab,
     cart2pol,
@@ -45,7 +44,7 @@ def _check_bl_same(list_data):
             diff_bl.append([i, blname])
     ckeck = True
     if len(diff_bl) != 0:
-        print("Different BL found compared to the reference (%s)" % str(blname_ref))
+        print(f"Different BL found compared to the reference ({blname_ref!s})")
         print(diff_bl)
         ckeck = False
     return ckeck
@@ -65,9 +64,8 @@ def _check_good_tel(list_data, verbose=True):
         if len(d_vis_sel) == 0:
             l_bad.append(blname[i])
 
-    if len(l_bad) != 0:
-        if verbose:
-            print("\n## Warning: only nan detected in baselines:", l_bad)
+    if len(l_bad) != 0 and verbose:
+        print("\n## Warning: only nan detected in baselines:", l_bad)
 
     i_bl_bad = np.zeros(len(list_data[0].tel))
     l_tel = list(set(list_data[0].tel))
@@ -85,12 +83,11 @@ def _check_good_tel(list_data, verbose=True):
     if len(l_bad) != 0:
         exclude_tel = [l_tel[i] for i in range(nbad) if i_bl_bad[i] == max_bad]
 
-    if len(l_bad) != 0:
-        if verbose:
-            print(
-                "-> so telescopes seem to be down and are automaticaly excluded:",
-                exclude_tel,
-            )
+    if len(l_bad) != 0 and verbose:
+        print(
+            "-> so telescopes seem to be down and are automaticaly excluded:",
+            exclude_tel,
+        )
     return exclude_tel, l_tel
 
 
@@ -133,9 +130,7 @@ def _select_data_v2(
 
     if cond_wl:
         try:
-            sel_wl = np.invert(
-                (data.wl >= wl_bounds[0] * 1e-6) & (data.wl < wl_bounds[1] * 1e-6)
-            )
+            sel_wl = np.invert((data.wl >= wl_bounds[0] * 1e-6) & (data.wl < wl_bounds[1] * 1e-6))
         except TypeError:
             print("wl_bounds is None, please give wavelength limits (e.g.: [2, 3])")
     cond_v2 = sel_flag | sel_err | sel_wl
@@ -164,9 +159,7 @@ def _select_data_cp(
 
     if cond_wl:
         try:
-            sel_wl = np.invert(
-                (data.wl >= wl_bounds[0] * 1e-6) & (data.wl < wl_bounds[1] * 1e-6)
-            )
+            sel_wl = np.invert((data.wl >= wl_bounds[0] * 1e-6) & (data.wl < wl_bounds[1] * 1e-6))
         except TypeError:
             print("wl_bounds is None, please give wavelength limits (e.g.: [2, 3])")
 
@@ -309,7 +302,7 @@ def spectral_bin_data(list_data, nbox=50, force=False, rel_err=0.01, wave_lim=No
         Same as input `list_data` but spectrally binned.
     """
 
-    if not isinstance(list_data, (list, np.ndarray)):
+    if not isinstance(list_data, list | np.ndarray):
         list_data = [list_data]
     nfile = len(list_data)
 
@@ -350,9 +343,7 @@ def spectral_bin_data(list_data, nbox=50, force=False, rel_err=0.01, wave_lim=No
             freq_cp.append(Bmax / l_wl / 206264.806247)  # convert to arcsec-1
         freq_cp = np.array(freq_cp)
         for i in range(len(data_bin.u)):
-            freq_vis2.append(
-                data_bin.bl[i] / l_wl / 206264.806247
-            )  # convert to arcsec-1
+            freq_vis2.append(data_bin.bl[i] / l_wl / 206264.806247)  # convert to arcsec-1
         freq_vis2 = np.array(freq_vis2)
 
         data_bin.freq_vis2 = freq_vis2
@@ -434,7 +425,7 @@ def temporal_bin_data(
         wave_lim = [0, 20]
 
     try:
-        exclude_tel, l_tel = _check_good_tel(list_data, verbose=verbose)
+        exclude_tel, _l_tel = _check_good_tel(list_data, verbose=verbose)
     except ValueError:
         exclude_tel = []
 
@@ -524,9 +515,7 @@ def temporal_bin_data(
             inCont = (np.abs(wl - lbdBrg) < 0.1) * (np.abs(wl - lbdBrg) > 0.004)
             if False:
                 if len(wl) > 10:
-                    normalize_continuum(
-                        dphi, d.wl[cond_wl], inCont, degree=1, phase=True
-                    )
+                    normalize_continuum(dphi, d.wl[cond_wl], inCont, degree=1, phase=True)
             e_dvis = d.e_dvis[gd][cond_wl]
             e_dphi = d.e_dphi[gd][cond_wl]
             e_dvis[e_dvis == 0] = np.nan
@@ -698,9 +687,7 @@ def normalize_dvis_continuum(
         Y = abs(complex_vis)
         mean_model = Y.mean()
         cont_mod = np.polyval(np.polyfit(X, Y, 2), wl - lbdBrg)
-        print(
-            f"Obs = {mean_cont:2.3f} ± {err_cont:2.3f}, model cont = {mean_model:2.3f}"
-        )
+        print(f"Obs = {mean_cont:2.3f} ± {err_cont:2.3f}, model cont = {mean_model:2.3f}")
     else:
         cont_mod = 1
 
@@ -1057,10 +1044,7 @@ def compute_pure_line_cvis(
 
     # Take the continuum from the FT camera (for GRAVITY)
     if self_norm:
-        if ref_v2:
-            cvis_in_cont = d.vis2[ibl][inCont].copy() ** 0.5
-        else:
-            cvis_in_cont = d.dvis[ibl][inCont].copy()
+        cvis_in_cont = d.vis2[ibl][inCont].copy() ** 0.5 if ref_v2 else d.dvis[ibl][inCont].copy()
         nan_interp(cvis_in_cont)
         cont_ft = cvis_in_cont.mean()
     else:
@@ -1112,9 +1096,7 @@ def compute_pure_line_cvis(
     except UnboundLocalError:
         mod_dvis = []
 
-    mod_dphi, fit_dphi = perform_fit_dphi(
-        wl, dphi, e_dphi, param_dphi, double=double_phase
-    )
+    mod_dphi, fit_dphi = perform_fit_dphi(wl, dphi, e_dphi, param_dphi, double=double_phase)
 
     if ibl in force_zero_dphi:
         mod_dphi = np.zeros_like(mod_dphi)
@@ -1124,9 +1106,7 @@ def compute_pure_line_cvis(
     if verbose:
         print("Results fit differentials:")
         print("--------------------------")
-        print(
-            "chi2: vis={:2.2f}, phi={:2.2f}".format(fit_dvis["chi2"], fit_dphi["chi2"])
-        )
+        print("chi2: vis={:2.2f}, phi={:2.2f}".format(fit_dvis["chi2"], fit_dphi["chi2"]))
 
     # Compute pure line vis and phi
     if use_mod:
@@ -1186,8 +1166,7 @@ def compute_pure_line_cvis(
         180
         * (
             unumpy.arcsin(
-                (u_F_tot * u_V_tot * unumpy.sin(u_dphi_inline))
-                / (u_F_line * u_dvis_pure)
+                (u_F_tot * u_V_tot * unumpy.sin(u_dphi_inline)) / (u_F_line * u_dvis_pure)
             )
         )
         / np.pi
@@ -1207,12 +1186,10 @@ def compute_pure_line_cvis(
     e_pco = np.zeros(n_wl_inline)
     for iwl in range(n_wl_inline):
         pi = rad2mas(
-            (-np.deg2rad(dphi_pure[iwl]) / (2 * np.pi))
-            * ((wl_inline[iwl] * 1e-6) / (bl_length))
+            (-np.deg2rad(dphi_pure[iwl]) / (2 * np.pi)) * ((wl_inline[iwl] * 1e-6) / (bl_length))
         )
         e_pi = rad2mas(
-            (-np.deg2rad(e_dphi_pure[iwl]) / (2 * np.pi))
-            * ((wl_inline[iwl] * 1e-6) / (bl_length))
+            (-np.deg2rad(e_dphi_pure[iwl]) / (2 * np.pi)) * ((wl_inline[iwl] * 1e-6) / (bl_length))
         )
         pco[iwl] = pi
         e_pco[iwl] = abs(e_pi)
@@ -1546,6 +1523,8 @@ def compute_pco(data, data_cont, **args):
 
 
 def pcs_from_aspro(d, lbdBrg=2.1661, wBrg=0.0005, ratio=2.5):
+    from oimalib.plotting import err_pts_style
+
     """d is class-like dict (from oimalib.load) containing data from jmmc
     software (with only ONE u-v pt). Compute the photocenter shift from the
     already normalized phase visibility."""
@@ -1569,8 +1548,7 @@ def pcs_from_aspro(d, lbdBrg=2.1661, wBrg=0.0005, ratio=2.5):
     l_u_x, l_u_y, l_fit = [], [], []
     for j in range(len(wl_inline)):
         pi = rad2mas(
-            (-np.deg2rad(dphi_pure[:, j]) / (2 * np.pi))
-            * ((wl_inline[j] * 1e-6) / (bl_length[:]))
+            (-np.deg2rad(dphi_pure[:, j]) / (2 * np.pi)) * ((wl_inline[j] * 1e-6) / (bl_length[:]))
         )
         y_pc = np.concatenate([pi, -pi]) * 1000.0
         x_pc = np.concatenate([bl_pa, bl_pa - 180])
@@ -1596,7 +1574,7 @@ def pcs_from_aspro(d, lbdBrg=2.1661, wBrg=0.0005, ratio=2.5):
 
         x_model = np.linspace(0, 360, 100)
         plt.subplot(3, 3, j + 1)
-        plt.title("λ = %2.4f µm" % wl_inline[j])
+        plt.title(f"λ = {wl_inline[j]:2.4f} µm")
         plt.errorbar(x_pc, y_pc, yerr=e_pc, **err_pts_style)
         plt.plot(x_model, model_pcshift(x_model, fit_pc["best"]), "-", lw=1)
         plt.ylim(-60, 60)
@@ -1655,6 +1633,8 @@ def extract_condition(list_data, tau_lim=20, display=False):
     }
 
     if display:
+        from oimalib.plotting import plot_condition
+
         plot_condition(l_mjd, l_seeing, l_tau, tau_lim=tau_lim)
 
     return munchify(output)

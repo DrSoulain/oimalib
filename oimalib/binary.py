@@ -3,6 +3,7 @@ Created on Wed Nov  4 13:16:58 2019
 
 @author: asoulain
 """
+
 from math import atan2, degrees
 
 import matplotlib.pyplot as plt
@@ -59,18 +60,14 @@ class Binary:
 
         # Kepler's laws should tell us the orbital period
         # P^2 = 4 pi^2 (a_star1 + a_star2)^3 / (G (M_star1 + M_star2))
-        self.P = np.sqrt(
-            4 * np.pi**2 * (self.a1 + self.a2) ** 3 / (G * (self.M1 + self.M2))
-        )
+        self.P = np.sqrt(4 * np.pi**2 * (self.a1 + self.a2) ** 3 / (G * (self.M1 + self.M2)))
 
         # compute the initial velocities velocities
 
         # first compute the velocity of the reduced mass at perihelion
         # (C&O Eq. 2.33)
         v_mu = np.sqrt(
-            (G * (self.M1 + self.M2) / (self.a1 + self.a2))
-            * (1.0 + self.e)
-            / (1.0 - self.e)
+            (G * (self.M1 + self.M2) / (self.a1 + self.a2)) * (1.0 + self.e) / (1.0 - self.e)
         )
 
         # then v_star2 = (mu/m_star2)*v_mu
@@ -170,10 +167,7 @@ class Binary:
             -G
             * self.M1
             * self.M2
-            / np.sqrt(
-                (self.orbit1.x - self.orbit2.x) ** 2
-                + (self.orbit1.y - self.orbit2.y) ** 2
-            )
+            / np.sqrt((self.orbit1.x - self.orbit2.x) ** 2 + (self.orbit1.y - self.orbit2.y) ** 2)
         )
         return PE
 
@@ -251,9 +245,7 @@ def AngleBtw2Points(pointA, pointB):
     return theta
 
 
-def getBinaryPos(
-    mjd, param, mjd0=57590, revol=1, v=5, au=False, anim=False, display=False
-):
+def getBinaryPos(mjd, param, mjd0=57590, revol=1, v=5, au=False, anim=False, display=False):
     """Compute the spatial positon of a binary star."""
     P = param["P"]
     e = param["e"]
@@ -332,11 +324,7 @@ def getBinaryPos(
     Y2 = -X2_rot2 * np.sin(angleSky) + Y2_rot2 * np.cos(angleSky)
 
     phase = s1.t / b.P
-    r = (
-        ((s1.x[:] ** 2 + s1.y[:] ** 2) ** 0.5 + (s2.x[:] ** 2 + s2.y[:] ** 2) ** 0.5)
-        / au_cgs
-        / dpc
-    )
+    r = ((s1.x[:] ** 2 + s1.y[:] ** 2) ** 0.5 + (s2.x[:] ** 2 + s2.y[:] ** 2) ** 0.5) / au_cgs / dpc
 
     fx1 = interp1d(phase, X1)
     fy1 = interp1d(phase, Y1)
@@ -407,9 +395,7 @@ def getBinaryPos(
 
     d_post_pa = pphase * P
 
-    v = 2 * np.max(
-        [X_star2.max(), Y_star2.max(), abs(X_star2.min()), abs(Y_star2.min())]
-    )
+    v = 2 * np.max([X_star2.max(), Y_star2.max(), abs(X_star2.min()), abs(Y_star2.min())])
     if display:
         xmin, xmax, ymin, ymax = -v, v, -v, v
         plt.figure(figsize=(10, 5))
@@ -423,8 +409,8 @@ def getBinaryPos(
         plt.vlines(0, -v, v, linewidth=1, color="gray", alpha=0.5)
         plt.hlines(0, -v, v, linewidth=1, color="gray", alpha=0.5)
         plt.legend()
-        plt.xlabel("X [%s]" % unit)
-        plt.ylabel("Y [%s]" % unit)
+        plt.xlabel(f"X [{unit}]")
+        plt.ylabel(f"Y [{unit}]")
         plt.axis([xmax, xmin, ymin, ymax])
         plt.subplot(1, 2, 2)
         plt.plot(
@@ -433,9 +419,7 @@ def getBinaryPos(
             linewidth=1,
             linestyle="-",
             zorder=2,
-            label=r"$\phi_{{prod}}$ = {:2.1f} % ({:2.1f} d)".format(
-                tab["f_prod"], tab["d_prod"]
-            ),
+            label=r"$\phi_{{prod}}$ = {:2.1f} % ({:2.1f} d)".format(tab["f_prod"], tab["d_prod"]),
         )
         plt.plot(
             pphase,
@@ -446,12 +430,8 @@ def getBinaryPos(
             label=f"r = {r_act:2.2f} {unit}",
         )
         if not nodust:
-            plt.plot(
-                phase[cond_prod1], r[cond_prod1], "-", color="#a0522d", lw=4, alpha=0.5
-            )
-            plt.plot(
-                phase[cond_prod2], r[cond_prod2], "-", color="#a0522d", lw=4, alpha=0.5
-            )
+            plt.plot(phase[cond_prod1], r[cond_prod1], "-", color="#a0522d", lw=4, alpha=0.5)
+            plt.plot(phase[cond_prod2], r[cond_prod2], "-", color="#a0522d", lw=4, alpha=0.5)
 
         if ~np.isnan(rs):
             plt.hlines(
@@ -460,14 +440,14 @@ def getBinaryPos(
                 1,
                 linestyle="-.",
                 color="#006400",
-                label=r"Threshold d$_{nuc}$ = %2.2f" % rs,
+                label=rf"Threshold d$_{{nuc}}$ = {rs:2.2f}",
             )
         plt.legend(loc="best")
         plt.grid(alpha=0.2)
         plt.xlim(0, 1)
         plt.ylim(0, 2 * r.mean())
         plt.xlabel("Orbital phase")
-        plt.ylabel("r [%s]" % unit)
+        plt.ylabel(f"r [{unit}]")
         plt.tight_layout()
         if anim:
             plt.pause(0.3)

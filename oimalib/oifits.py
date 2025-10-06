@@ -8,6 +8,7 @@ OIFITS related function.
 -----------------------------------------------------------------
 """
 
+import contextlib
 import os
 import sys
 from glob import glob
@@ -24,7 +25,7 @@ def _compute_dic_index(index_ref, teles_ref):
     for i in range(len(index_ref)):
         ind = index_ref[i]
         tel = teles_ref[i]
-        if ind not in dic_index.keys():
+        if ind not in dic_index:
             dic_index[ind] = tel
     return dic_index
 
@@ -72,7 +73,7 @@ def dir2data(filedir, ext="fits"):
     Format all data from different oifits files in filedir to the list usable
     by the other functions.
     """
-    listfile = glob(os.path.join(filedir, "*.%s" % ext))
+    listfile = glob(os.path.join(filedir, f"*.{ext}"))
     tab = []
     for f in listfile:
         data = load(f, cam="SC")
@@ -172,10 +173,8 @@ def load(namefile, cam="SC", split=False, simu=False, pola=None):
 
     tel = []
     for i in range(nspec):
-        try:
+        with contextlib.suppress(KeyError):
             tel.append(dic_index[sta_index[i]])
-        except KeyError:
-            pass
     tel = np.array(tel)
 
     # OI_T3 table
@@ -193,7 +192,7 @@ def load(namefile, cam="SC", split=False, simu=False, pola=None):
         else:
             print(
                 "Your dataset have not OI_T3 with the supported index (%i)"
-                + ", try another dataset." % index_cam,
+                + ", try another dataset.",
                 file=sys.stderr,
             )
         return None

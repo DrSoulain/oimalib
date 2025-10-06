@@ -46,9 +46,8 @@ def _check_good_tel(list_data, verbose=True):
         if len(d_vis_sel) == 0:
             l_bad.append(blname[i])
 
-    if len(l_bad) != 0:
-        if verbose:
-            print("\n## Warning: only nan detected in baselines:", l_bad)
+    if len(l_bad) != 0 and verbose:
+        print("\n## Warning: only nan detected in baselines:", l_bad)
 
     i_bl_bad = np.zeros(len(list_data[0].tel))
     l_tel = list(set(list_data[0].tel))
@@ -66,21 +65,17 @@ def _check_good_tel(list_data, verbose=True):
     if len(l_bad) != 0:
         exclude_tel = [l_tel[i] for i in range(nbad) if i_bl_bad[i] == max_bad]
 
-    if len(l_bad) != 0:
-        if verbose:
-            print(
-                "-> so telescopes seem to be down and are automaticaly excluded:",
-                exclude_tel,
-            )
+    if len(l_bad) != 0 and verbose:
+        print(
+            "-> so telescopes seem to be down and are automaticaly excluded:",
+            exclude_tel,
+        )
     return exclude_tel, l_tel
 
 
 def _print_info_model(wl_model, modelfile, fov, npix, s, starttime):
     nwl = len(wl_model)
-    if nwl == 1:
-        modeltype = "image"
-    else:
-        modeltype = "cube"
+    modeltype = "image" if nwl == 1 else "cube"
     try:
         fname = modelfile.split("/")[-1]
     except AttributeError:
@@ -90,18 +85,17 @@ def _print_info_model(wl_model, modelfile, fov, npix, s, starttime):
     cprint("-" * len(title), "cyan")
     pixsize = fov / npix
     print(
-        "fov=%2.2f mas, npix=%i (%i padded, equivalent %2.2f mas), pix=%2.4f mas"
-        % (fov, npix, s[2], s[2] * pixsize, pixsize)
+        f"fov={fov:2.2f} mas, npix={npix} ({s[2]} padded, "
+        f"equivalent {s[2] * pixsize:2.2f} mas), pix={pixsize:2.4f} mas"
     )
     if nwl == 1:
-        cprint("nwl=%i (%2.1f µm)" % (nwl, np.mean(wl_model) * 1e6), "green")
+        cprint(f"nwl={nwl} ({np.mean(wl_model) * 1e6:2.1f} µm)", "green")
     else:
         wl1 = wl_model[0] * 1e6
         wl2 = wl_model[-1] * 1e6
         wl_step = np.diff(wl_model)[0] * 1e6
         cprint(
-            "nwl=%i (wl0=%2.3f, wlmax=%2.3f µm, step=%2.3f nm)"
-            % (nwl, wl1, wl2, wl_step * 1000.0),
+            f"nwl={nwl} (wl0={wl1:2.3f}, wlmax={wl2:2.3f} µm, step={wl_step * 1000.0:2.3f} nm)",
             "green",
         )
     print("Computation time = %2.2f s" % (time.time() - starttime))
@@ -141,10 +135,7 @@ def _extract_pix(hdr, pix_user, scale):
         unit = None
     try:
         if unit is None:
-            if "deg" in (hdr.comments["CDELT1"]):
-                unit = "deg"
-            else:
-                unit = "rad"
+            unit = "deg" if "deg" in hdr.comments["CDELT1"] else "rad"
         if unit == "rad":
             pix_size = abs(hdr["CDELT1"]) * scale
         elif unit == "deg":
@@ -172,9 +163,7 @@ def _extract_wave(hdu, hdr, wl_user=None, azim=None, incl=None):
         n_azim = hdu[0].data.shape[0]
         n_incl = hdu[0].data.shape[1]
         if (azim is None) or (incl is None):
-            print(
-                "Model seems to include azimuth (%i) and incl (%i)" % (n_azim, n_incl)
-            )
+            print(f"Model seems to include azimuth ({n_azim}) and incl ({n_incl})")
             print("-> Specify azim and incl index.")
             return None
 
@@ -194,7 +183,7 @@ def _extract_wave(hdu, hdr, wl_user=None, azim=None, incl=None):
     n_wl = hdr.get("NAXIS3", 1)
     if wl_user is not None:
         wl0 = wl_user
-        if isinstance(wl_user, (float, np.float64)):
+        if isinstance(wl_user, float | np.float64):
             n_wl = 1
         elif isinstance(wl_user, list):
             n_wl = len(wl_user)
@@ -213,9 +202,7 @@ def _extract_wave(hdu, hdr, wl_user=None, azim=None, incl=None):
                 return None
             else:
                 wl0 = wl_user
-                print(
-                    "Wavelenght not found: argument wl_user (%2.1f) is used)." % wl_user
-                )
+                print(f"Wavelenght not found: argument wl_user ({wl_user:2.1f}) is used).")
 
     return wl_model, delta_wl, n_wl
 
@@ -278,12 +265,10 @@ def model2grid(
     npix = hdr["NAXIS1"]
 
     # Extract the wavelength table or specify user one
-    wl_model, delta_wl, n_wl = _extract_wave(
-        hdu, hdr, wl_user=wl_user, azim=azim, incl=incl
-    )
+    wl_model, _delta_wl, n_wl = _extract_wave(hdu, hdr, wl_user=wl_user, azim=azim, incl=incl)
 
     # Extract the pixel size or specify user one
-    unit, pix_size = _extract_pix(hdr, pix_user, scale)
+    _unit, pix_size = _extract_pix(hdr, pix_user, scale)
 
     fov = rad2mas(npix * pix_size)
     if n_wl == 1:
@@ -325,7 +310,7 @@ def model2grid(
     if len(hdu[0].data.shape) >= 3:
         sns.set_context("talk", font_scale=0.9)
         plt.figure(figsize=(6, 4))
-        plt.plot(wl_model * 1e6, flux, ".", label="nwl=%i" % len(wl_model))
+        plt.plot(wl_model * 1e6, flux, ".", label=f"nwl={len(wl_model)}")
         if restframe is not None:
             plt.axvline(
                 restframe,
@@ -333,7 +318,7 @@ def model2grid(
                 lw=2,
                 color="green",
                 alpha=0.5,
-                label=r"$\lambda$=%2.4f µm" % restframe,
+                label=rf"$\lambda$={restframe:2.4f} µm",
             )
         plt.xlabel("Wavelength [µm]")
         plt.ylabel("Norm. spectrum")
@@ -342,9 +327,7 @@ def model2grid(
 
     axes_rot = (1, 2)
     if len(image_input.shape) == 2:
-        image_input = image_input.reshape(
-            [1, image_input.shape[0], image_input.shape[1]]
-        )
+        image_input = image_input.reshape([1, image_input.shape[0], image_input.shape[1]])
     mod = rotate(image_input, rotation, axes=axes_rot, reshape=False)
     model_aligned = mod.copy()
     # if fliplr:
@@ -366,9 +349,7 @@ def model2grid(
     fft2D /= maxi[:, None, None]
     freqVect = np.fft.fftshift(np.fft.fftfreq(n_pix, pix_size))
     if verbose:
-        pix_size_grid, title = _print_info_model(
-            wl_model, modelfile, fov, npix, s, starttime
-        )
+        pix_size_grid, title = _print_info_model(wl_model, modelfile, fov, npix, s, starttime)
     pix_size_grid = fov / npix
 
     if verbose:
@@ -383,25 +364,24 @@ def model2grid(
     if n_wl == 1:
         im3d_real = interp2d(freqVect, freqVect, fft2D.real, kind="cubic")
         im3d_imag = interp2d(freqVect, freqVect, fft2D.imag, kind="cubic")
+    elif method == "linear":
+        im3d_real = regip(
+            (wl_model, freqVect, freqVect),
+            [x.T for x in fft2d_real],
+            method="linear",
+            bounds_error=False,
+            fill_value=np.nan,
+        )
+        im3d_imag = regip(
+            (wl_model, freqVect, freqVect),
+            [x.T for x in fft2d_imag],
+            method="linear",
+            bounds_error=False,
+            fill_value=np.nan,
+        )
     else:
-        if method == "linear":
-            im3d_real = regip(
-                (wl_model, freqVect, freqVect),
-                [x.T for x in fft2d_real],
-                method="linear",
-                bounds_error=False,
-                fill_value=np.nan,
-            )
-            im3d_imag = regip(
-                (wl_model, freqVect, freqVect),
-                [x.T for x in fft2d_imag],
-                method="linear",
-                bounds_error=False,
-                fill_value=np.nan,
-            )
-        else:
-            print("Not implemented yet.")
-            return None
+        print("Not implemented yet.")
+        return None
 
     p = Path(modelfile)
     modelname = p.stem
@@ -452,10 +432,7 @@ def _compute_grid_model_chromatic(data, grid, verbose=False):
 
     greal, gimag = grid.real, grid.imag
 
-    if not isinstance(data, list):
-        l_data = [data]
-    else:
-        l_data = data
+    l_data = [data] if not isinstance(data, list) else data
     start_time = time.time()
     l_mod_v2, l_mod_cp = [], []
 
@@ -468,10 +445,7 @@ def _compute_grid_model_chromatic(data, grid, verbose=False):
                 x = grid.sign * um / wl
                 y = vm / wl
                 pts = (wl, x, y)
-                if not data.flag_vis2[i][j]:
-                    v2 = abs(greal(pts) + 1j * gimag(pts)) ** 2
-                else:
-                    v2 = np.nan
+                v2 = abs(greal(pts) + 1j * gimag(pts)) ** 2 if not data.flag_vis2[i][j] else np.nan
                 mod_v2[i, j] = v2
 
         mod_cp = np.zeros([ncp, nwl])
@@ -511,10 +485,7 @@ def _compute_grid_model_nochromatic(data, grid, verbose=False):
 
     greal, gimag = grid.real, grid.imag
 
-    if not isinstance(data, list):
-        l_data = [data]
-    else:
-        l_data = data
+    l_data = [data] if not isinstance(data, list) else data
     # start_time = time.time()
 
     l_mod_v2, l_mod_cp = [], []
@@ -540,15 +511,9 @@ def _compute_grid_model_nochromatic(data, grid, verbose=False):
             u1m, u2m, u3m = u1 / data.wl, u2 / data.wl, u3 / data.wl
             v1m, v2m, v3m = v1 / data.wl, v2 / data.wl, v3 / data.wl
             greal, gimag = grid.real, grid.imag
-            cvis_1 = [
-                greal(u1m[i], v1m[i]) + 1j * gimag(u1m[i], v1m[i]) for i in range(nwl)
-            ]
-            cvis_2 = [
-                greal(u2m[i], v2m[i]) + 1j * gimag(u2m[i], v2m[i]) for i in range(nwl)
-            ]
-            cvis_3 = [
-                greal(u3m[i], v3m[i]) + 1j * gimag(u3m[i], v3m[i]) for i in range(nwl)
-            ]
+            cvis_1 = [greal(u1m[i], v1m[i]) + 1j * gimag(u1m[i], v1m[i]) for i in range(nwl)]
+            cvis_2 = [greal(u2m[i], v2m[i]) + 1j * gimag(u2m[i], v2m[i]) for i in range(nwl)]
+            cvis_3 = [greal(u3m[i], v3m[i]) + 1j * gimag(u3m[i], v3m[i]) for i in range(nwl)]
             bispec = np.array(cvis_1) * np.array(cvis_2) * np.array(cvis_3)
             cp = np.rad2deg(np.arctan2(bispec.imag, bispec.real))
             mod_cp[i] = np.squeeze(cp)
@@ -572,10 +537,7 @@ def compute_geom_model(data, param, verbose=False):
     """Compute interferometric observables baseline per baseline
     and for all wavelengths (slow)."""
     start_time = time.time()
-    if not isinstance(data, list):
-        l_data = [data]
-    else:
-        l_data = data
+    l_data = [data] if not isinstance(data, list) else data
     start_time = time.time()
     l_mod_v2, l_mod_cp = [], []
     k = 0
@@ -583,11 +545,10 @@ def compute_geom_model(data, param, verbose=False):
         model_target = select_model(param["model"])
         isValid, log = check_params_model(param)
         if not isValid:
-            cprint("\nWrong input parameters for %s model:" % (param["model"]), "green")
+            cprint("\nWrong input parameters for {} model:".format(param["model"]), "green")
             print(log)
             cprint(
-                "-" * len("Wrong input parameters for %s model." % (param["model"]))
-                + "\n",
+                "-" * len("Wrong input parameters for {} model.".format(param["model"])) + "\n",
                 "green",
             )
             return None, None
@@ -635,9 +596,7 @@ def _check_prior(param):
     return isValid
 
 
-def _compute_geom_model_ind(
-    dataset, param, compute_cp=True, use_flag=False, verbose=False
-):
+def _compute_geom_model_ind(dataset, param, compute_cp=True, use_flag=False, verbose=False):
     """Compute interferometric observables all at once (including all spectral
     channels) by using matrix computation. `dataset` corresponds to an individual
     fits file (from oimalib.load())."""
@@ -718,7 +677,7 @@ def _compute_geom_model_ind(
     #     cvis[cvis == 0] = np.nan
 
     if verbose:
-        print("Time to compute %i points = %2.2f s" % (nobs, endtime - startime))
+        print(f"Time to compute {nobs:d} points = {endtime - startime:2.2f} s")
     mod = {
         "vis2": vis2,
         "cp": cp,
@@ -731,16 +690,11 @@ def _compute_geom_model_ind(
     return mod
 
 
-def compute_geom_model_fast(
-    data, param, ncore=1, compute_cp=True, use_flag=False, verbose=False
-):
+def compute_geom_model_fast(data, param, ncore=1, compute_cp=True, use_flag=False, verbose=False):
     """Compute interferometric observables using the matrix method (faster)
     for a list of data (type(data) == list) or only one file (type(data) ==
     dict). The multiple dataset can be computed in parallel if `ncore` > 1."""
-    if not isinstance(data, list):
-        l_data = [data]
-    else:
-        l_data = data
+    l_data = [data] if not isinstance(data, list) else data
     start_time = time.time()
 
     if ncore == 1:
@@ -765,7 +719,7 @@ def compute_geom_model_fast(
         pool.close()
     etime = time.time() - start_time
     if verbose:
-        print("Execution time compute_geom_model_fast: %2.3f s" % etime)
+        print(f"Execution time compute_geom_model_fast: {etime:2.3f} s")
     return result_list
 
 
@@ -804,10 +758,7 @@ def _compute_dobs_grid_bl(
     um = d.u[ibl]
     vm = d.v[ibl]
 
-    if obs_wl:
-        wlm = d.wl
-    else:
-        wlm = np.linspace(d.wl[0], d.wl[-1], 100)
+    wlm = d.wl if obs_wl else np.linspace(d.wl[0], d.wl[-1], 100)
 
     # Interpolated function (real and imaginary parts)
     greal, gimag = grid.real, grid.imag
@@ -830,10 +781,7 @@ def _compute_dobs_grid_bl(
     res_obs = np.diff(d.wl).mean()
     res_model = np.diff(grid.wl).mean()
     scale_resol = res_obs / res_model
-    if scale:
-        flux_scale = gaussian_filter1d(grid.flux, sigma=scale_resol)
-    else:
-        flux_scale = grid.flux
+    flux_scale = gaussian_filter1d(grid.flux, sigma=scale_resol) if scale else grid.flux
     fct_flux = interp1d(grid.wl, flux_scale, kind="cubic", bounds_error=False)
     flux_obs = fct_flux(wlm)
 
@@ -869,7 +817,7 @@ def combine_grid_geom_model_image(
 ):
     if isinstance(wl, list):
         wl = np.array(wl)
-    elif isinstance(wl, (float, np.float64)):
+    elif isinstance(wl, float | np.float64):
         wl = np.array([wl])
 
     fov = mas2rad(fov)
@@ -917,9 +865,9 @@ def combine_grid_geom_model_image(
 
     if verbose:
         print(
-            "oimalibsphere contribution = {:2.1f} % (lcr = {:2.2f})".format(
-                100 * fmag_im / (fmag_im + fh + fc), mm[index_image]
-            )
+            f"oimalibsphere contribution = "
+            f"{100 * fmag_im / (fmag_im + fh + fc):2.1f} % "
+            f"(lcr = {mm[index_image]:2.2f})"
         )
     fwhm_apod = 5e4
     # Apodisation
@@ -1042,27 +990,23 @@ def compute_pdf_chi2(data, param, fitOnly=None, use_flag=True, normalizeErrors=F
     dict_obs_cp["mod"] = np.array(mod_cp).flatten()
     dict_obs_cp["res"] = (dict_obs_cp["cp"] - dict_obs_cp["mod"]) / dict_obs_cp["e_cp"]
     dict_obs_v2["mod"] = np.array(mod_v2).flatten()
-    dict_obs_v2["res"] = (dict_obs_v2["vis2"] - dict_obs_v2["mod"]) / dict_obs_v2[
-        "e_vis2"
-    ]
+    dict_obs_v2["res"] = (dict_obs_v2["vis2"] - dict_obs_v2["mod"]) / dict_obs_v2["e_vis2"]
 
     if use_flag:
         flag = np.array(dict_obs_cp["flag_cp"])
         flag_nan = np.isnan(np.array(dict_obs_cp["cp"]))
-        for k in dict_obs_cp.keys():
+        for k in dict_obs_cp:
             dict_obs_cp[k] = np.array(dict_obs_cp[k])[~flag & ~flag_nan]
         flag2 = np.array(dict_obs_v2["flag_vis2"])
         flag_nan2 = np.isnan(np.array(dict_obs_v2["vis2"]))
-        for k in dict_obs_v2.keys():
+        for k in dict_obs_v2:
             dict_obs_v2[k] = np.array(dict_obs_v2[k])[~flag2 & ~flag_nan2]
 
     df_v2 = pd.DataFrame(dict_obs_v2)
     df_cp = pd.DataFrame(dict_obs_cp)
 
     d_freedom = len(fitOnly)
-    chi2_vis2_full = np.sum(
-        (df_v2["vis2"] - df_v2["mod"]) ** 2 / (df_v2["e_vis2"]) ** 2
-    )
+    chi2_vis2_full = np.sum((df_v2["vis2"] - df_v2["mod"]) ** 2 / (df_v2["e_vis2"]) ** 2)
     chi2_vis2 = chi2_vis2_full / (len(df_v2["e_vis2"]) - (d_freedom - 1))
 
     chi2_cp_full = np.sum((df_cp["cp"] - df_cp["mod"]) ** 2 / (df_cp["e_cp"]) ** 2)
@@ -1097,9 +1041,7 @@ def compute_pdf_chi2(data, param, fitOnly=None, use_flag=True, normalizeErrors=F
     return df_v2, df_cp, chi2_global, chi2_vis2, chi2_cp
 
 
-def plot_chi2_lk(
-    dataset, fit, *, fitOnly, cons=True, norm=False, verbose=False, display=True
-):
+def plot_chi2_lk(dataset, fit, *, fitOnly, cons=True, norm=False, verbose=False, display=True):
     """Plot chi2 curve of the ratio a/ak for the lazareff model. The return
     results are the best fitted w and the upper and lower limit. The search of
     minimum chi2 can be:
@@ -1136,9 +1078,8 @@ def plot_chi2_lk(
         w = ak / a
         if verbose:
             print(
-                "lk = {:2.2f} (chi2 = {:2.2f}): w = {:2.2f}, ar = {:2.2f}, ak = {:2.2f}".format(
-                    lk, stat[ind_stat], w, ar, ak
-                )
+                f"lk = {lk:2.2f} (chi2 = {stat[ind_stat]:2.2f}): "
+                f"w = {w:2.2f}, ar = {ar:2.2f}, ak = {ak:2.2f}"
             )
         l_w.append(w)
         l_chi2.append(stat[ind_stat])
@@ -1170,22 +1111,21 @@ def plot_chi2_lk(
     if display:
         plt.figure()
         plt.title(
-            r"$w = {:2.0f}^{{+{:2.0f}}}_{{-{:2.0f}}}$ (norm = {:2.1f}{})".format(
-                w_best, w_up, abs(w_low), norm_value, name_norm
-            )
+            rf"$w = {w_best:2.0f}^{{+{w_up:2.0f}}}_{{-{abs(w_low):2.0f}}}$ "
+            rf"(norm = {norm_value:2.1f}{name_norm})"
         )
         plt.plot(1e2 * l_w, l_chi2)
         plt.plot(
             w_best,
             l_chi2.min(),
             "ro",
-            label="$w_{best}$ = %2.0f %%" % w_best,
+            label=f"$w_{{best}}$ = {w_best:2.0f} %",
         )
         plt.plot(
             w_limit,
             l_chi2[arg_up],
             "bo",
-            label="$w_{limit}$ = %2.0f %%" % w_limit,
+            label=f"$w_{{limit}}$ = {w_limit:2.0f} %",
         )
         plt.xlabel("$w$ [%]")
         plt.ylabel(label)

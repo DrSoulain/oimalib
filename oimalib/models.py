@@ -1,8 +1,14 @@
+import os
+import pickle
+import time
+
 import numpy as np
 import seaborn as sns
+from astropy.convolution import Gaussian1DKernel, convolve
 from astropy.io import fits
 from matplotlib import pyplot as plt
 from scipy import optimize
+from scipy.interpolate import interp1d
 
 from oimalib.alex import (
     contvis,
@@ -10,6 +16,7 @@ from oimalib.alex import (
     pcshift,
     pldp,
     plvis,
+    shiftcomp,
     shiftfit,
     totflux,
     totphase,
@@ -71,10 +78,7 @@ class Model:
 
         self.extent = extent
 
-        if mcfost:
-            cube = hdu[0].data[0]
-        else:
-            cube = hdu[0].data
+        cube = hdu[0].data[0] if mcfost else hdu[0].data
         self.cube = cube  # Flux data from the model
 
         try:
@@ -91,7 +95,7 @@ class Model:
         res_vel = np.diff(vel).mean()
         dwl = np.diff(waves).mean()
         self.dwl = dwl
-        print("[INFO] Velocity resolution of the model = %i km/s" % (res_vel))
+        print(f"[INFO] Velocity resolution of the model = {int(res_vel)} km/s")
 
         self.kernel = res / res_vel / 2.355
 
@@ -111,16 +115,11 @@ class Model:
         contflux1 = np.average(F2[:, 0:avgrange], axis=1)
 
         # Average continuum right
-        contflux2 = np.average(
-            F2[:, len(self.waves) - avgrange : len(self.waves)], axis=1
-        )
+        contflux2 = np.average(F2[:, len(self.waves) - avgrange : len(self.waves)], axis=1)
         contflux = np.add(contflux1, contflux2) / 2
 
         fluxrat = np.array(
-            [
-                [F2[n, k] / contflux[n] for k in range(len(F2[0, :]))]
-                for n in range(len(F2[:, 0]))
-            ]
+            [[F2[n, k] / contflux[n] for k in range(len(F2[0, :]))] for n in range(len(F2[:, 0]))]
         )
         # Total line to continuum ratio per wavelength and inclination.
         self.fluxrat = fluxrat
@@ -132,15 +131,12 @@ class Model:
             plt.ylabel("Norm. flux")
             plt.tight_layout()
 
-    def build_coordinates(
-        self, baseline_length, baseline_angle, pa=None, display=False
-    ):
+    def build_coordinates(self, baseline_length, baseline_angle, pa=None, display=False):
         """Build array coordinates and rotate (if any)."""
         if pa is None:
             pa = [0]
-        from oimalib.alex import shiftcomp
 
-        if isinstance(pa, (float, int)):
+        if isinstance(pa, float | int):
             pa = [pa]
 
         if len(pa) != 1:
@@ -208,7 +204,7 @@ class Model:
             plt.figure(figsize=(7, 6))
             ax = plt.gca()
             plt.title("u-v coverage")
-            plt.plot(bx, by, "o", color="#349edf", label="PA = %2.1f deg" % (pa[0]))
+            plt.plot(bx, by, "o", color="#349edf", label=f"PA = {pa[0]:2.1f} deg")
             plt.plot(blx, bly, "o", color="#349edf", alpha=0.2)
             plt.plot(-bx, -by, "o", color="#349edf")
             plt.plot(-blx, -bly, "o", color="#349edf", alpha=0.2)
@@ -225,7 +221,6 @@ class Model:
         coordinates defined by build_coordinates(). If `conv` is True, the
         observable are convolved (along the spectral domain) by the kernel
         defined by the resolution of GRAVITY (60 km/s)."""
-        from astropy.convolution import Gaussian1DKernel, convolve
 
         compvis = np.array(
             [
@@ -241,10 +236,7 @@ class Model:
                                             * 1j
                                             * np.pi
                                             / self.waves3[k]
-                                            * (
-                                                self.bx[pa, i] * self.x
-                                                + self.by[pa, i] * self.y
-                                            )
+                                            * (self.bx[pa, i] * self.x + self.by[pa, i] * self.y)
                                         ),
                                     )
                                 ),
@@ -320,14 +312,10 @@ class Model:
     def interpolate_data(self, wl, kind="cubic"):
         """Interpolate the raw observables on a new wavelength grid (from real
         data or not)."""
-        from scipy.interpolate import interp1d
 
         # Interpolate the convolved observables on the new wave grid.
         fct_fluxrat = np.array(
-            [
-                interp1d(self.waves, self.fluxrat[n, :], kind=kind)
-                for n in range(self.nincl)
-            ]
+            [interp1d(self.waves, self.fluxrat[n, :], kind=kind) for n in range(self.nincl)]
         )
 
         fct_visamp = np.array(
@@ -403,7 +391,7 @@ class Model:
         `incl` {list}:
             Inclination of the disk [degree].
         """
-        if isinstance(incl, (int, float)):
+        if isinstance(incl, int | float):
             incl = [incl]
 
         self.n_size = len(disk_size)
@@ -619,7 +607,6 @@ class Model:
     def get_pcs(self):
         """Compute the phocenter barycenter offset (fit a sinusoid model on the
         pure line offset phases)."""
-        from oimalib.alex import shiftcomp
 
         pureoffset = np.array(
             [
@@ -631,9 +618,7 @@ class Model:
                                     [
                                         pcshift(
                                             self.plwl[k],
-                                            self.plvisphi[
-                                                dflux, hflux, siz, pa, i, n, k
-                                            ],
+                                            self.plvisphi[dflux, hflux, siz, pa, i, n, k],
                                             self.bl[i],
                                         )
                                         for k in range(len(self.plwl))
@@ -658,9 +643,7 @@ class Model:
         # Pure line offsets per baseline (in au I think)
         def _catch(x):
             try:
-                return optimize.curve_fit(
-                    shiftfit, np.squeeze(self.bl_pa), x, p0=[0, 0]
-                )[0]
+                return optimize.curve_fit(shiftfit, np.squeeze(self.bl_pa), x, p0=[0, 0])[0]
             except ValueError:
                 return np.array([0, 0])
 
@@ -719,8 +702,6 @@ class Model:
         )
 
     def get_interp_cube(self, wl=None):
-        import time
-
         starttime = time.time()
         if wl is None:
             print("[INFO] Interpolate the cube over GRAVITY pure wavelengths...")
@@ -728,7 +709,7 @@ class Model:
             print("[INFO] Interpolate the cube over the user grid wl...")
         icube = cube_interpolator(self, wl=wl)
 
-        print("Done (%i s)." % (time.time() - starttime))
+        print(f"Done ({int(time.time() - starttime)} s).")
         self.icube = icube
 
     def get_size(self, param="fwhm", display=False):
@@ -737,9 +718,6 @@ class Model:
         self.l_gauss = l_gauss
 
     def save(self, update=False, savedir=None):
-        import os
-        import pickle
-
         if savedir is None:
             savedir = "modelDB/"
         if not os.path.exists(savedir):
@@ -749,10 +727,10 @@ class Model:
         key = self.param.key
         phase = self.param.phase
 
-        savedir += "model%i/" % key
+        savedir += f"model{key}/"
         if not os.path.exists(savedir):
             os.mkdir(savedir)
-        savedir += "incl%i/" % incl
+        savedir += f"incl{incl}/"
         if not os.path.exists(savedir):
             os.mkdir(savedir)
 
@@ -781,12 +759,7 @@ class Model:
         mlight.l_gauss = self.l_gauss
         mlight.pl_size = self.pl_size
 
-        dpy_file = savedir + "model_%i_i=%i_phase=%2.2f.dpy" % (
-            self.param.key,
-            self.param.incl,
-            phase,
-        )
+        dpy_file = savedir + f"model_{self.param.key}_i={self.param.incl}_phase={phase:2.2f}.dpy"
         if not os.path.exists(dpy_file) or update:
-            file = open(dpy_file, "wb")
-            pickle.dump(mlight, file, 2)
-            file.close()
+            with open(dpy_file, "wb") as file:
+                pickle.dump(mlight, file, protocol=2)

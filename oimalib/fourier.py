@@ -3,6 +3,7 @@ Created on Wed Nov  4 13:16:58 2015
 
 @author: asoulain
 """
+
 import numpy as np
 
 
@@ -16,14 +17,11 @@ def shiftFourier(Utable, Vtable, wl, C_in, x0, y0):
 
 def UVGrid(bmax, npts):
     """Construct the grid in (u-v) plan (Fourier space)"""
-    if isinstance(npts, int):
-        N = npts
-    else:
-        N = 100
+    N = npts if isinstance(npts, int) else 100
 
     x = np.linspace(-bmax, bmax, N)
     y = np.linspace(-bmax, bmax, N)
-    Utable, vv = np.meshgrid(x, y)
+    Utable, _vv = np.meshgrid(x, y)
     Vtable = np.transpose(Utable)
 
     uTab = np.reshape(Utable, [1, N * N])

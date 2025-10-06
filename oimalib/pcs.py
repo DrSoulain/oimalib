@@ -9,8 +9,7 @@ from scipy.constants import c as c_light
 from scipy.stats import gaussian_kde
 from uncertainties import unumpy
 
-import oimalib
-from oimalib import load
+import oimalib as oi
 
 
 def convert_ind_data(dataset, wave_lim=None, corr_tellu=False):
@@ -77,25 +76,24 @@ def select_data_time_range(list_dataset, time_lim=None):
 def build_dataset_list(datadir, calibrated=True, i_start=0, i_end=-1, part=None):
     if datadir[-1] != "/":
         datadir.append("/")
-    if calibrated:
-        end_file = "*ted.fits"
-    else:
-        end_file = "*scivis.fits"
+    end_file = "*ted.fits" if calibrated else "*scivis.fits"
     list_files = sorted(glob(datadir + end_file))
-    list_data = [load(x, cam="SC") for x in list_files][i_start:i_end]
-    list_data_ft = [load(x, cam="FT") for x in list_files][i_start:i_end]
+    list_data = [oi.load(x, cam="SC") for x in list_files][i_start:i_end]
+    list_data_ft = [oi.load(x, cam="FT") for x in list_files][i_start:i_end]
     part = str(i_start) + "-" + str(i_end)
     list_data[0].info.part = part
     return list_data, list_data_ft
 
 
 def compute_pcs_files(
-    list_dataset, file_to_be_combined, param_lcr, param_pure={}, list_dataset_ft=None
+    list_dataset, file_to_be_combined, param_lcr, param_pure=None, list_dataset_ft=None
 ):
+    if param_pure is None:
+        param_pure = {}
     dataset = convert_ind_data(list_dataset[0])
-    OiPure = oimalib.OiPure(dataset)
-    OiPure.fit_lcr(**param_lcr)
-    wl_inline = OiPure.wl[OiPure.inLine]
+    oi_pure = oi.OiPure(dataset)
+    oi_pure.fit_lcr(**param_lcr)
+    wl_inline = oi_pure.wl[oi_pure.inLine]
     wvl0 = 2.1661178  # wavelength of BrGamma (in microns)
     vLine = (wl_inline - wvl0) / wvl0 * c_light / 1e3
 
@@ -107,16 +105,16 @@ def compute_pcs_files(
         else:
             dataset_ft = None
 
-        OiPure = oimalib.OiPure(dataset)
-        OiPure.fit_lcr(**param_lcr)
-        OiPure.compute_quantities_ibl(ft=dataset_ft, **param_pure)
-        OiPure.compute_pcs_direct()
+        oi_pure = oi.OiPure(dataset)
+        oi_pure.fit_lcr(**param_lcr)
+        oi_pure.compute_quantities_ibl(ft=dataset_ft, **param_pure)
+        oi_pure.compute_pcs_direct()
 
         # Get the pcs (oriented toward east and north)
-        x = unumpy.nominal_values(OiPure.pcs_east_dir)
-        y = unumpy.nominal_values(OiPure.pcs_north_dir)
-        e_x = unumpy.std_devs(OiPure.pcs_east_dir)
-        e_y = unumpy.std_devs(OiPure.pcs_north_dir)
+        x = unumpy.nominal_values(oi_pure.pcs_east_dir)
+        y = unumpy.nominal_values(oi_pure.pcs_north_dir)
+        e_x = unumpy.std_devs(oi_pure.pcs_east_dir)
+        e_y = unumpy.std_devs(oi_pure.pcs_north_dir)
 
         pcs_matrix[i, 0, :] = x
         pcs_matrix[i, 1, :] = y
@@ -218,7 +216,7 @@ def compute_orient_mag(
     mode_probable = x_vals[np.argmax(y_vals)]
 
     if verbose:
-        print("\n=== Relative orientation between %s and %s points ==== " % (pt1, pt2))
+        print(f"\n=== Relative orientation between {pt1} and {pt2} points ==== ")
         print(f"Most probale angle {mode_probable:.0f} ± {stat_IQR:.0f} deg")
         print(f"Mean angle {mean_angle:.1f} deg, median {med_angle:.1f} deg")
 
@@ -227,9 +225,7 @@ def compute_orient_mag(
     ax.scatter([x1, x2], [y1, y2], color="red", zorder=5, label="Points originaux")
 
     # Tracer les perturbations des points (Monte Carlo)
-    for p1, p2 in perturbed_points[
-        :100
-    ]:  # Afficher seulement un échantillon pour la clarté
+    for p1, p2 in perturbed_points[:100]:  # Afficher seulement un échantillon pour la clarté
         ax.plot([p1[0], p2[0]], [p1[1], p2[1]], color="gray", alpha=0.1)
 
     # Tracer les vecteurs pour les 100 premières simulations
@@ -315,17 +311,13 @@ def compute_orient_mag(
     mjd = OiPure.mjd
     part = OiPure.part
     if save:
-        result_dir = "Results_%s_pcs" % OiPure.target
+        result_dir = f"Results_{OiPure.target}_pcs"
         if not os.path.exists(result_dir):
             os.mkdir(result_dir)
-        plt.savefig(
-            "%s/fit_orient_mjd%i_pt1=%i_pt2=%i_p%s.pdf"
-            % (result_dir, mjd, pt1, pt2, part)
-        )
+        plt.savefig(f"{result_dir}/fit_orient_mjd{mjd}_pt1={pt1}_pt2={pt2}_p{part}.pdf")
 
         np.savetxt(
-            "%s/res_orient_mjd%i_pt1=%i_pt2=%i_p%s.txt"
-            % (result_dir, mjd, pt1, pt2, part),
+            f"{result_dir}/res_orient_mjd{mjd}_pt1={pt1}_pt2={pt2}_p{part}.txt",
             np.append(res, mjd),
         )
 

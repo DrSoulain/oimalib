@@ -67,18 +67,18 @@ T  3
 1 2 3
 
 #Atoms settings / share some informations with molecules
-1				#number of atoms
-H_20.atom			#all levels treated in details
-T 		#treated in non-LTE ?
-0			#initial solution, 0 LTE, 1 old pops
-500 51		#vmax (km/s), n_points for ray-traced images
-T 3		#images (T) or total flux (F) ? Number of lines for images (depends on the model).
-7 4		#upper level -> lower level
-5 4		#upper level -> lower level
-5 3		#upper level -> lower level
+1               #number of atoms
+H_20.atom           #all levels treated in details
+T       #treated in non-LTE ?
+0           #initial solution, 0 LTE, 1 old pops
+500 51      #vmax (km/s), n_points for ray-traced images
+T 3     #images (T) or total flux (F) ? Number of lines for images (depends on the model).
+7 4     #upper level -> lower level
+5 4     #upper level -> lower level
+5 3     #upper level -> lower level
 
 #Star properties
 1 Number of stars
 4200.000 2.00 0.90 0.0 0.0 0.0 T
 lte4000-3.5.NextGen.fits.gz
-0.0e+00	2.2  fUV, slope_fUV
+0.0e+00 2.2  fUV, slope_fUV

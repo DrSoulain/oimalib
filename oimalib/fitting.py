@@ -1,3 +1,4 @@
+import contextlib
 import multiprocessing
 import sys
 
@@ -12,11 +13,10 @@ from termcolor import cprint
 from tqdm import tqdm
 from uncertainties import ufloat
 
-import oimalib
-from oimalib import complex_models
-from oimalib.complex_models import model_acc_mag
-from oimalib.fit.dpfit import leastsqFit
-from oimalib.tools import compute_oriented_shift, mas2rad, round_sci_digit
+from . import complex_models
+from .complex_models import model_acc_mag
+from .fit.dpfit import leastsqFit
+from .tools import compute_oriented_shift, mas2rad, normalize_continuum, round_sci_digit
 
 if sys.platform == "darwin":
     multiprocessing.set_start_method("fork", force=True)
@@ -114,16 +114,7 @@ def check_params_model(param):
         dm = param["dm"]
         if dm < 0:
             isValid = False
-    elif param["model"] == "egdisk":
-        majorAxis = param["majorAxis"]
-        incl = param["incl"]
-        pa = param["pa"]
-
-        c1 = (incl > 90.0) | (incl < 0)
-        c2 = (pa < 0) | (pa > 180)
-        if c1 | c2:
-            isValid = False
-    elif param["model"] == "edisk":
+    elif param["model"] == "egdisk" or param["model"] == "edisk":
         majorAxis = param["majorAxis"]
         incl = param["incl"]
         pa = param["pa"]
@@ -387,20 +378,17 @@ def get_stat_data(data, verbose=True):
         npts_init += len(d.vis2.flatten())
         npts_init += len(d.cp.flatten())
 
-    txt = "\nTotal npts = %i (vis2 = %i, cp = %i)" % (npts_init, n_vis2, n_cp)
+    txt = f"\nTotal npts = {npts_init} (vis2 = {n_vis2}, cp = {n_cp})"
     if verbose:
         cprint(txt, "cyan")
         cprint("-" * len(txt), "cyan")
-        print("V2 flag = %i , nan = %i" % (n_flag_vis2, n_nan_vis2))
-        print("CP flag = %i , nan = %i" % (n_flag_cp, n_nan_cp))
+        print(f"V2 flag = {n_flag_vis2} , nan = {n_nan_vis2}")
+        print(f"CP flag = {n_flag_cp} , nan = {n_nan_cp}")
     npts_good = npts_init - n_nan_cp - n_nan_vis2 - n_flag_cp - n_flag_vis2
     npts_good_vis2 = n_vis2 - n_flag_vis2 - n_nan_vis2
     npts_good_cp = n_cp - n_flag_cp - n_nan_cp
     if verbose:
-        print(
-            "Good pts = %i (vis2 = %i, cp = %i)"
-            % (npts_good, npts_good_vis2, npts_good_cp)
-        )
+        print(f"Good pts = {npts_good} (vis2 = {npts_good_vis2}, cp = {npts_good_cp})")
         cprint("-" * len(txt), "cyan")
         print()
     return npts_good
@@ -477,9 +465,11 @@ def model_standard_v2(d, param):
     l_mod_cp, l_mod_cvis = [], []
     fitted = param["fitted"]
 
-    mod = oimalib.modelling.compute_geom_model_fast(d, param, ncore=1, use_flag=True)
+    from .modelling import compute_geom_model_fast
 
-    npts_flagged = oimalib.get_stat_data(d, verbose=False)
+    mod = compute_geom_model_fast(d, param, ncore=1, use_flag=True)
+
+    npts_flagged = get_stat_data(d, verbose=False)
 
     l_mod_cp = []
     l_mod_cvis = []
@@ -595,12 +585,11 @@ def compute_chi2_curve(
     fit_theta = fit["best"][name_param]
     fit_e_theta = fit["uncer"][name_param]
 
-    if fit_theta < array_params[0]:
-        fit_theta = array_params[0]
+    fit_theta = max(fit_theta, array_params[0])
 
     fitOnly.remove(name_param)
     l_chi2r = []
-    for pr in tqdm(array_params, desc="Chi2 curve (%s)" % name_param, ncols=100):
+    for pr in tqdm(array_params, desc=f"Chi2 curve ({name_param})", ncols=100):
         params[name_param] = pr
         lfits = smartfit(
             data,
@@ -617,7 +606,7 @@ def compute_chi2_curve(
 
     n_freedom = len(fitOnly)
 
-    n_pts = oimalib.get_stat_data(data)
+    n_pts = get_stat_data(data)
 
     l_chi2r = np.array(l_chi2r)
     l_chi2 = np.array(l_chi2r) * (n_pts - (n_freedom - 1))
@@ -653,15 +642,10 @@ def compute_chi2_curve(
 
     bound = np.array([dr1_r, dr2_r])
     bound = bound[~np.isnan(bound)]
-    if len(bound) == 1:
-        errors_chi2 = bound[0]
-    else:
-        errors_chi2 = np.mean([dr1_r, dr2_r])
+    errors_chi2 = bound[0] if len(bound) == 1 else np.mean([dr1_r, dr2_r])
 
     plt.figure()
-    plt.plot(
-        array_params[c_left], l_chi2r[c_left], color="tab:blue", lw=3, alpha=1, zorder=1
-    )
+    plt.plot(array_params[c_left], l_chi2r[c_left], color="tab:blue", lw=3, alpha=1, zorder=1)
     plt.plot(array_params[c_right], l_chi2r[c_right], color="tab:blue", lw=3, alpha=1)
     plt.plot(
         fit_theta,
@@ -753,14 +737,10 @@ def smartfit(
             doNotFit = tmp
         else:
             doNotFit.extend(tmp)
-        try:
-            fitOnly = list(
-                filter(lambda x: not isinstance(first_guess[x], str), fitOnly)
-            )
-        except Exception:
-            pass
+        with contextlib.suppress(Exception):
+            fitOnly = list(filter(lambda x: not isinstance(first_guess[x], str), fitOnly))
 
-    obs = np.concatenate([oimalib.format_obs(x, use_flag=True) for x in data])
+    obs = np.concatenate([format_obs(x, use_flag=True) for x in data])
     save_obs = obs.copy()
     obs = []
     for o in save_obs:
@@ -776,14 +756,10 @@ def smartfit(
 
     npts = len(Y)
     npts_good_check = get_stat_data(data, verbose=False)
-    if verbose:
-        if npts_good_check != npts:
-            print("Npts data = %i (should be %i)" % (npts, npts_good_check))
+    if verbose and npts_good_check != npts:
+        print(f"Npts data = {npts} (should be {npts_good_check})")
 
-    if fast:
-        fct_model = model_standard_v2
-    else:
-        fct_model = model_standard
+    fct_model = model_standard_v2 if fast else model_standard
 
     lfit = leastsqFit(
         fct_model,
@@ -941,7 +917,7 @@ def format_obs(data, use_flag=False, input_rad=False, verbose=False):
     N_cp = len(obs) - N_v2 - N_vis - N_phi
     Obs = np.array(obs, dtype=object)
     if verbose:
-        print("\nTotal # of data points: %i (%i V2, %i CP)" % (len(Obs), N_v2, N_cp))
+        print(f"\nTotal # of data points: {len(Obs)} ({N_v2} V2, {N_cp} CP)")
     return Obs
 
 
@@ -1008,15 +984,14 @@ def log_likelihood(p_mcmc, data, param, fitOnly, tobefit, obs=None, fd=None, e_f
 
     inv_sigma2 = 1.0 / (e_y**2)
 
-    if "fc" in param.keys():
+    if "fc" in param:
         fc = param["fc"]
         add_cons_sed = (fc - fd) ** 2 / e_fd**2
     else:
         add_cons_sed = 0
 
     res = -0.5 * (
-        np.sum((y - model) ** 2 * inv_sigma2 - np.log(inv_sigma2.astype(float)))
-        + add_cons_sed
+        np.sum((y - model) ** 2 * inv_sigma2 - np.log(inv_sigma2.astype(float))) + add_cons_sed
     )
     # res = -.5 * (np.sum(delta_y ** 2 / sigma2 + np.log(2 * np.pi * sigma2)) + add_cons_sed)
 
@@ -1026,9 +1001,7 @@ def log_likelihood(p_mcmc, data, param, fitOnly, tobefit, obs=None, fd=None, e_f
         return res
 
 
-def log_probability(
-    p_mcmc, data, param, fitOnly, prior, tobefit, obs=None, fd=None, e_fd=None
-):
+def log_probability(p_mcmc, data, param, fitOnly, prior, tobefit, obs=None, fd=None, e_fd=None):
     """Similar to log_probability() but including the prior restrictions.
 
     Parameters:
@@ -1051,9 +1024,7 @@ def log_probability(
     lp = log_prior(p_mcmc, prior, fitOnly)
     if not np.isfinite(lp):
         return -np.inf
-    return lp + log_likelihood(
-        p_mcmc, data, param, fitOnly, tobefit, obs=obs, fd=fd, e_fd=e_fd
-    )
+    return lp + log_likelihood(p_mcmc, data, param, fitOnly, tobefit, obs=obs, fd=fd, e_fd=e_fd)
 
 
 def neg_like_prob(*args):
@@ -1118,7 +1089,7 @@ def mcmcfit(
     if tobefit is None:
         tobefit = ["V2", "CP"]
 
-    obs = np.concatenate([oimalib.format_obs(x, use_flag=True) for x in data])
+    obs = np.concatenate([format_obs(x, use_flag=True) for x in data])
     save_obs = obs.copy()
     obs = []
     for o in save_obs:
@@ -1169,8 +1140,7 @@ def mcmcfit(
 
     if burnin > niter:
         cprint(
-            "## Warning: Burnin = %i should be < %i iter (force to zero)."
-            % (burnin, niter),
+            f"## Warning: Burnin = {burnin} should be < {niter} iter (force to zero).",
             "green",
         )
         cprint("-> You should increase the niter value (typically >100)", "green")
@@ -1331,12 +1301,9 @@ def fit_flc_spectra(
 
     # Normalize the flux to 1
     if norm:
-        oimalib.tools.normalize_continuum(flux, wl, inCont)
+        normalize_continuum(flux, wl, inCont)
 
-    if err_cont:
-        e_flux = np.std(flux[inCont])
-    else:
-        e_flux = 0.001 * flux.max()
+    e_flux = np.std(flux[inCont]) if err_cont else 0.001 * flux.max()
 
     Y = flux - 1  # Shift to zero for gaussian fit
     X = wl
@@ -1356,7 +1323,7 @@ def fit_flc_spectra(
         }
         name_model = model_flux_red_abs
 
-    fit = oimalib.fitting.leastsqFit(
+    fit = leastsqFit(
         name_model,
         X,
         param,
@@ -1364,10 +1331,7 @@ def fit_flc_spectra(
         err=err,
         verbose=verbose,
     )
-    if use_model:
-        F_lc = name_model(wl, fit["best"]) + 1
-    else:
-        F_lc = flux
+    F_lc = name_model(wl, fit["best"]) + 1 if use_model else flux
 
     best_param = fit["best"]
     if not red_abs:
@@ -1407,7 +1371,7 @@ def fit_flc_spectra(
         plt.text(
             restframe - 2.9 * wBrg,
             lcr - 0.02,
-            "LCR = %2.2f" % lcr,
+            f"LCR = {lcr:2.2f}",
             ha="left",
             va="top",
             color="#b4c1d0",
@@ -1438,14 +1402,14 @@ def fit_flc_spectra(
             restframe + wBrg / 2.0,
             zorder=1,
             alpha=0.2,
-            label="$w$=%2.4f µm" % wBrg,
+            label=f"$w$={wBrg:2.4f} µm",
         )
         plt.axvline(
             restframe,
             c="tab:blue",
             alpha=0.5,
             lw=1,
-            label=r"$\lambda_{0}$=%2.4f µm" % restframe,
+            label=rf"$\lambda_{{0}}$={restframe:2.4f} µm",
         )
         tellu_pos = [
             2.15909,
@@ -1523,9 +1487,7 @@ def fit_pc_shift(output_pco, p=0.05):
         chi2_tmp = 1e50
         for o in np.arange(0, 360, 45):
             param = {"p": p, "offset": o}
-            fit_tmp = leastsqFit(
-                model_pcshift, x_pc, param, y_pc, err=e_pc, verbose=False
-            )
+            fit_tmp = leastsqFit(model_pcshift, x_pc, param, y_pc, err=e_pc, verbose=False)
             chi2 = fit_tmp["chi2"]
             if chi2 <= chi2_tmp:
                 fit_pc = fit_tmp
@@ -1614,7 +1576,7 @@ def perform_fit_dvis(wl, dvis, e_dvis, param, double=False, inCont=None, display
         plt.tight_layout()
         plt.show(block=False)
 
-    fit = oimalib.fitting.leastsqFit(
+    fit = leastsqFit(
         model_1dgauss_offset_double,
         wl[~inCont],
         param,
@@ -1624,10 +1586,9 @@ def perform_fit_dvis(wl, dvis, e_dvis, param, double=False, inCont=None, display
         verbose=False,
     )
     chi2 = fit["chi2"]
-    if not np.isnan(chi2):
-        if chi2 < chi2_tmp:
-            fit_best = fit
-            chi2_tmp = chi2
+    if not np.isnan(chi2) and chi2 < chi2_tmp:
+        fit_best = fit
+        chi2_tmp = chi2
 
     try:
         mod_dvis = model_1dgauss_offset_double(wl, fit_best["best"])
@@ -1662,7 +1623,7 @@ def perform_fit_dphi(
         plt.tight_layout()
         plt.show(block=False)
 
-    fit = oimalib.fitting.leastsqFit(
+    fit = leastsqFit(
         model_1dgauss_offset_double,
         wl,
         param,
@@ -1723,9 +1684,7 @@ def fit_size(Model, i_wl, dwl=None, param="fwhm", display=True, verbose=True):
     if verbose:
         print("\n---------------------- Fit size ------------------------")
         print(
-            "R = {:2.5f} au, elong = {:2.1f}, pa = {:2.1f} deg @ {:2.4f} µm (elliptic),".format(
-                r_ellipse, elong, pa, wl.mean() * 1e6
-            )
+            f"R = {r_ellipse:2.5f} au, elong = {elong:2.1f}, pa = {pa:2.1f} deg @ {wl.mean() * 1e6:2.4f} µm (elliptic),"
         )
     # else:
     fit_best_gauss = leastsqFit(
@@ -1738,7 +1697,7 @@ def fit_size(Model, i_wl, dwl=None, param="fwhm", display=True, verbose=True):
     gauss_model = np.array([r_gauss * np.cos(t), r_gauss * np.sin(t)])
 
     if verbose:
-        print("R = %2.5f au (gaussian).\n" % (r_gauss))
+        print(f"R = {r_gauss:2.5f} au (gaussian).\n")
 
     u_model = np.linspace(0, 200, 100)
     v_model = np.zeros_like(u_model)
@@ -1763,12 +1722,10 @@ def fit_size(Model, i_wl, dwl=None, param="fwhm", display=True, verbose=True):
             "+",
             color="lime",
             zorder=3,
-            label=r"r$_{ellipse}$=%2.3f au" % (r_ellipse),
+            label=rf"r$_{{ellipse}}$={r_ellipse:2.3f} au",
         )
         plt.legend()
-        plt.plot(
-            u_model, y_model, color="#eba15c", label=r"r$_{gauss}$=%2.3f au" % (r_gauss)
-        )
+        plt.plot(u_model, y_model, color="#eba15c", label=rf"r$_{{gauss}}$={r_gauss:2.3f} au")
         plt.legend(loc=3)
         plt.xlabel("Baseline lengths [m]")
         plt.ylabel("Pure line amplitude")

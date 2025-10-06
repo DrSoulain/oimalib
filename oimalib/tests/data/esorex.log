@@ -1,7 +1,7 @@
 
 Start time     : 2022-02-14T17:12:39
 Program name   : esorex
-Severity level : [ INFO  ] 
+Severity level : [ INFO  ]
 
 17:12:39 [ INFO  ] : This is EsoRex, version 3.13.5
 17:12:39 [ INFO  ] : using the libraries: CPL = 7.1.4, CFITSIO = 3.49, WCSLIB = 7.4, FFTW (normal precision) = 3.3.9-sse2, FFTW (single precision) = 3.3.9-sse2, CPL FLOP counting is unavailable, enable with -DCPL_ADD_FLOPS
@@ -56,27 +56,27 @@ Severity level : [ INFO  ]
 17:12:39 [ INFO  ] gravi_data_append: Merge table OI_FLUX
 17:12:39 [ INFO  ] gravi_data_append: Exit function gravi_data_append (0.001028 s)
 17:12:39 [WARNING] FIXME: ***********************************************
-17:12:39 [WARNING] FIXME:                                                
-17:12:39 [WARNING] FIXME:  Average the different observations = EXPERIMENTAL 
-17:12:39 [WARNING] FIXME:                                                
+17:12:39 [WARNING] FIXME:
+17:12:39 [WARNING] FIXME:  Average the different observations = EXPERIMENTAL
+17:12:39 [WARNING] FIXME:
 17:12:39 [WARNING] FIXME: ***********************************************
 17:12:39 [ INFO  ] gravi_average_vis: Start function gravi_average_vis
 17:12:39 [WARNING] FIXME: ***********************************************
-17:12:39 [WARNING] FIXME:                                                
-17:12:39 [WARNING] FIXME:  Average the different observation is EXPERIMENTAL 
-17:12:39 [WARNING] FIXME:                                                
+17:12:39 [WARNING] FIXME:
+17:12:39 [WARNING] FIXME:  Average the different observation is EXPERIMENTAL
+17:12:39 [WARNING] FIXME:
 17:12:39 [WARNING] FIXME: ***********************************************
 17:12:39 [WARNING] gravi_average_vis: FIXME: Weightening of UVCOORD and MJD is not done properly yet !
 17:12:39 [WARNING] gravi_average_vis: FIXME: Integration of INT_TIME is not done properly yet !
 17:12:39 [WARNING] FIXME: ***********************************************
-17:12:39 [WARNING] FIXME:                                                
-17:12:39 [WARNING] FIXME:  VISDATA are not averaged !!!! 
-17:12:39 [WARNING] FIXME:                                                
+17:12:39 [WARNING] FIXME:
+17:12:39 [WARNING] FIXME:  VISDATA are not averaged !!!!
+17:12:39 [WARNING] FIXME:
 17:12:39 [WARNING] FIXME: ***********************************************
 17:12:39 [WARNING] FIXME: ***********************************************
-17:12:39 [WARNING] FIXME:                                                
-17:12:39 [WARNING] FIXME:  VISDATA are not averaged !!!! 
-17:12:39 [WARNING] FIXME:                                                
+17:12:39 [WARNING] FIXME:
+17:12:39 [WARNING] FIXME:  VISDATA are not averaged !!!!
+17:12:39 [WARNING] FIXME:
 17:12:39 [WARNING] FIXME: ***********************************************
 17:12:39 [ INFO  ] gravi_average_vis: Exit function gravi_average_vis (0.019119 s)
 17:12:39 [ INFO  ] gravi_vis_copy_fluxdata: Start function gravi_vis_copy_fluxdata
@@ -94,5 +94,4 @@ Severity level : [ INFO  ]
 17:12:39 [ INFO  ] : Recipe operation(s) took          0.257 seconds to complete.
 17:12:39 [ INFO  ] : Total size of 3 raw input frames  =     5.15 MB
 
-17:12:39 [ INFO  ] : => processing rate of    20.02 MB/sec 
-
+17:12:39 [ INFO  ] : => processing rate of    20.02 MB/sec

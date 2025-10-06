@@ -19,7 +19,7 @@ from .modelling import (
     compute_grid_model,
     model2grid,
 )
-from .models import Model  # , load
+from .models import Model
 from .oifits import get_condition, load
 from .plotting import (
     plot_complex_model,
@@ -28,10 +28,23 @@ from .plotting import (
     plot_image_model,
     plot_mcmc_results,
     plot_oidata,
-    plot_plvis,  # , model_ui
+    plot_plvis,
     plot_residuals,
     plot_spectra,
     plot_uv,
 )
 
-__version__ = "0.2"
+__all__ = [
+    "plot_complex_model",
+    "plot_data_paper",
+    "plot_dvis",
+    "plot_image_model",
+    "plot_mcmc_results",
+    "plot_oidata",
+    "plot_plvis",
+    "plot_residuals",
+    "plot_spectra",
+    "plot_uv",
+]
+
+__version__ = "0.3"

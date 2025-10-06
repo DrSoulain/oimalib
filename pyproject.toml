@@ -35,6 +35,7 @@ dependencies = [
     "seaborn",
     "munch",
     "pandas",
+    "termcolor",
 ]
 
 [project.optional-dependencies]
@@ -71,14 +72,17 @@ line-length = 88
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-select = ["E", "F", "I", "B", "UP", "PGH", "SIM", "PL", "RUF"]
-ignore = ["D"]                                                 # enlève cette ligne si tu veux imposer les docstrings
+lint.select = ["E", "F", "I", "B", "UP", "PGH", "RUF"]
+lint.ignore = ["E501"]
 fix = true
 unsafe-fixes = true
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 combine-as-imports = true
 known-first-party = ["oimalib"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401", "F403"]
 
 [tool.basedpyright]
 typeCheckingMode = "standard"

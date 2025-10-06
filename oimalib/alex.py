@@ -3,6 +3,7 @@ import importlib.resources as importlib_resources
 import numpy as np
 import scipy
 from astropy.io import fits
+from scipy.interpolate import interp1d
 
 
 def _find_nearest(array, value):
@@ -145,10 +146,8 @@ def pldp(dp, vis, plvis, FLC):
     inp = np.sin(dp) * vis / plvis * FLC / (FLC - 1)
 
     # Check for unpermitted values in arcsin (-1:1)
-    if inp > 1:
-        inp = 1
-    if inp < -1:
-        inp = -1
+    inp = min(inp, 1)
+    inp = max(inp, -1)
 
     pdp = np.arcsin(inp)
     return np.rad2deg(pdp)
@@ -163,7 +162,8 @@ def pcshift(waves, dp, blength):
 
 
 def shiftfit(angle, totalshift, totalangle):
-    if totalangle - angle.all() > 180:
+    MAX_ANGLE = 180.0
+    if totalangle - angle.all() > MAX_ANGLE:
         return -totalshift * np.cos(np.deg2rad(totalangle - (angle - 180)))
 
     else:
@@ -177,7 +177,6 @@ def cube_interpolator(Model, wl=None):
     setting calculates the interpolated grid using the pure line wave model
     `Model.plwl`. For more information, refer to the `get_pureline()` function.
     """
-    from scipy.interpolate import interp1d
 
     if wl is None:
         wl = Model.plwl
@@ -211,8 +210,5 @@ def cube_interpolator(Model, wl=None):
 def cart2pol(x, y):
     rho = np.sqrt(x**2 + y**2)
     phi = np.arctan2(x, y)
-    if np.rad2deg(phi) < 0:
-        phi_deg = 360 + np.rad2deg(phi)
-    else:
-        phi_deg = np.rad2deg(phi)
+    phi_deg = 360 + np.rad2deg(phi) if np.rad2deg(phi) < 0 else np.rad2deg(phi)
     return (rho, phi_deg)

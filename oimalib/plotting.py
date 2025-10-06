@@ -8,17 +8,18 @@ Set of function to plot oi data, u-v plan, models, etc.
 -----------------------------------------------------------------
 """
 
+import contextlib
 import importlib.resources as importlib_resources
+import os
 
 import matplotlib
-import matplotlib.cm as cm
 import matplotlib.colors as mcolors
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from astropy.io import fits
-from matplotlib import patches
-from matplotlib import pyplot as plt
+from astropy.time import Time
+from matplotlib import cm, gridspec, patches, pyplot as plt
 from matplotlib.colors import PowerNorm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.constants import c as c_light
@@ -28,6 +29,7 @@ from termcolor import cprint
 from uncertainties import unumpy
 
 from oimalib.complex_models import visGaussianDisk
+from oimalib.data_processing import normalize_dphi_continuum
 from oimalib.fitting import (
     check_params_model,
     format_obs,
@@ -39,6 +41,7 @@ from oimalib.fitting import (
 )
 from oimalib.fourier import UVGrid
 from oimalib.modelling import compute_geom_model_fast
+from oimalib.pcs import convert_ind_data
 from oimalib.tools import (
     cart2pol,
     find_nearest,
@@ -200,7 +203,7 @@ def plot_oidata(
         If True, spatial frequencies are set in Mλ.
     """
 
-    if (type(tab) == list) | (type(tab) == np.ndarray):
+    if (type(tab) is list) | (type(tab) is np.ndarray):
         data = tab[0]
     else:
         data = tab
@@ -231,18 +234,12 @@ def plot_oidata(
     l_fmin = np.array(l_fmin) * ff
     l_fmax = np.array(l_fmax) * ff
 
-    if len(l_fmin) == 1:
-        fmin = l_fmin[0]
-    else:
-        fmin = np.min(l_fmin)
+    fmin = l_fmin[0] if len(l_fmin) == 1 else np.min(l_fmin)
     fmax = l_fmax.max()
 
     ncp_master = len(set(list_triplet))
 
-    if not plot_amp:
-        ylabel = r"V$^2$"
-    else:
-        ylabel = r"Vis. Amp."
+    ylabel = r"V$^2$" if not plot_amp else r"Vis. Amp."
 
     sns.set_context("poster", font_scale=0.7)
     fig = plt.figure(figsize=(8, 6))
@@ -257,10 +254,7 @@ def plot_oidata(
         nwl = len(data.wl)
         nbl = data.vis2.shape[0]
         for i in range(nbl):
-            if use_flag:
-                sel_flag = np.invert(data.flag_vis2[i])
-            else:
-                sel_flag = [True] * nwl
+            sel_flag = np.invert(data.flag_vis2[i]) if use_flag else [True] * nwl
 
             freq_vis2 = data.freq_vis2[i][sel_flag]
             if not plot_amp:
@@ -306,26 +300,20 @@ def plot_oidata(
                         label=label,
                         **err_pts_style,
                     )
+                elif color:
+                    sc = ax1.scatter(freq_vis2, vis2, c=wave * 1e6, s=3)
                 else:
-                    if color:
-                        sc = ax1.scatter(freq_vis2, vis2, c=wave * 1e6, s=3)
-                    else:
-                        ebar = ax1.plot(
-                            freq_vis2, vis2, color=p_color, ls="-", lw=1, label=label
-                        )
-                        ax1.fill_between(
-                            freq_vis2,
-                            vis2 - e_vis2,
-                            vis2 + e_vis2,
-                            color=p_color,
-                            alpha=0.3,
-                        )
+                    ebar = ax1.plot(freq_vis2, vis2, color=p_color, ls="-", lw=1, label=label)
+                    ax1.fill_between(
+                        freq_vis2,
+                        vis2 - e_vis2,
+                        vis2 + e_vis2,
+                        color=p_color,
+                        alpha=0.3,
+                    )
 
             if mod_v2 is not None:
-                if not plot_amp:
-                    mod = mod_v2[j][i][sel_flag]
-                else:
-                    mod = mod_v2[j][i][sel_flag] ** 0.5
+                mod = mod_v2[j][i][sel_flag] if not plot_amp else mod_v2[j][i][sel_flag] ** 0.5
                 ax1.plot(
                     freq_vis2,
                     mod,
@@ -367,7 +355,9 @@ def plot_oidata(
     ax1.set_xlim(fmin - 2, fmax + 2 + offset)
     if not color:
         handles, labels = ax1.get_legend_handles_labels()
-        labels, handles = zip(*sorted(zip(labels, handles), key=lambda t: t[0]))
+        labels, handles = zip(
+            *sorted(zip(labels, handles, strict=False), key=lambda t: t[0]), strict=False
+        )
         ax1.legend(handles, labels, fontsize=7)
     else:
         cax = fig.add_axes(
@@ -408,9 +398,7 @@ def plot_oidata(
                     ],
                 )
             elif set_cp == 2:
-                ax2.set_prop_cycle(
-                    "color", ["#79ab8e", "#5c95a8", "#fa9583", "#263a55"]
-                )
+                ax2.set_prop_cycle("color", ["#79ab8e", "#5c95a8", "#fa9583", "#263a55"])
             else:
                 ax2.set_prop_cycle("color", plt.cm.turbo(np.linspace(0, 1, ncp_master)))
 
@@ -427,10 +415,7 @@ def plot_oidata(
         ncp = data.cp.shape[0]
         color_cp = None
         for i in range(ncp):
-            if use_flag:
-                sel_flag = np.invert(data.flag_cp[i])
-            else:
-                sel_flag = np.array([True] * nwl)
+            sel_flag = np.invert(data.flag_cp[i]) if use_flag else np.array([True] * nwl)
 
             freq_cp = data.freq_cp[i][sel_flag]
             cp = data.cp[i][sel_flag]
@@ -454,7 +439,7 @@ def plot_oidata(
                 label = triplet
                 list_triplet.append(triplet)
 
-            if triplet in color_cp_dic.keys():
+            if triplet in color_cp_dic:
                 color_cp = color_cp_dic[triplet]
 
             color_cp = "tab:blue"
@@ -463,7 +448,7 @@ def plot_oidata(
                 ebar = ax2.errorbar(
                     freq_cp, cp, yerr=e_cp, label=label, color=color_cp, **err_pts_style
                 )
-                if triplet not in color_cp_dic.keys():
+                if triplet not in color_cp_dic:
                     color_cp_dic[triplet] = ebar[0].get_color()
             else:
                 ax2.scatter(freq_cp, cp, c=wave, s=3)
@@ -509,7 +494,7 @@ def plot_uv(tab, bmax=150, rotation=0, *, ax=None, ms=4, legend=True, aligned=Fa
         Rotate the u-v plan.
     """
 
-    if (type(tab) == list) or (type(tab) == np.ndarray):
+    if (type(tab) is list) or (type(tab) is np.ndarray):
         wl_ref = np.mean(tab[0].wl) * 1e6
     else:
         wl_ref = np.mean(tab.wl) * 1e6
@@ -540,9 +525,7 @@ def plot_uv(tab, bmax=150, rotation=0, *, ax=None, ms=4, legend=True, aligned=Fa
     ax.set_xlabel(r"U [M$\lambda$]")  # , fontsize=12)
     ax.set_ylabel(r"V [M$\lambda$]")  # , fontsize=12)
     ax2.set_ylabel("V [m] - East", color="#007a59")  # , fontsize=12)
-    ax3.set_xlabel(
-        "U [m] (%2.2f µm) - North" % wl_ref, color="#007a59"
-    )  # , fontsize=12)
+    ax3.set_xlabel(f"U [m] ({wl_ref:2.2f} µm) - North", color="#007a59")  # , fontsize=12)
     ax2.tick_params(axis="y", colors="#007a59")
     ax3.tick_params(axis="x", colors="#007a59")
     if legend:
@@ -571,7 +554,7 @@ def plot_residuals(
 ):
     """
     Plot the comparison between data vs model and the corresponding residuals
-    [in σ] for the V2 and CP.
+    [in sigma] for the V2 and CP.
 
     Parameters:
     -----------
@@ -599,9 +582,8 @@ def plot_residuals(
     if fitOnly is None:
         print("Warning: FitOnly is None, the degree of freedom is set to 0.\n")
         fitOnly = []
-    else:
-        if len(fitOnly) == 0:
-            print("Warning: FitOnly is empty, the degree of freedom is set to 0.\n")
+    elif len(fitOnly) == 0:
+        print("Warning: FitOnly is empty, the degree of freedom is set to 0.\n")
 
     if not isinstance(data, list):
         data = [data]
@@ -625,7 +607,7 @@ def plot_residuals(
     )
     if save_dir is not None:
         plt.savefig(
-            save_dir + "residuals_CP_%sfit.pdf" % name,
+            save_dir + f"residuals_CP_{name}fit.pdf",
             bbox_inches="tight",
             dpi=300,
             pad_inches=0.05,
@@ -633,12 +615,10 @@ def plot_residuals(
 
     if hue == "baseline":
         param_plot["hue"] = "blname"
-    df_v2, chi2_vis2, chi2_vis2_full, mod_v2 = _plot_v2_residuals(
-        plot_line=False, **param_plot
-    )
+    df_v2, chi2_vis2, chi2_vis2_full, mod_v2 = _plot_v2_residuals(plot_line=False, **param_plot)
     if save_dir is not None:
         plt.savefig(
-            save_dir + "residuals_V2_%sfit.pdf" % name,
+            save_dir + f"residuals_V2_{name}fit.pdf",
             bbox_inches="tight",
             dpi=300,
             pad_inches=0.05,
@@ -672,7 +652,7 @@ def plot_residuals(
         all_mod[i + nv2] = df_cp["mod"][i]
 
     chi2_global = np.sum((obs - all_mod) ** 2 / (e_obs) ** 2) / (nobs - (d_freedom - 1))
-    title = "Statistic of the model %s" % param["model"]
+    title = "Statistic of the model {}".format(param["model"])
     if verbose:
         print(title)
         print("-" * len(title))
@@ -764,7 +744,7 @@ def plot_image_model(
 
     isValid, log = check_params_model(param)
     if not isValid:
-        cprint("Model %s not valid:" % param["model"], "cyan")
+        cprint("Model {} not valid:".format(param["model"]), "cyan")
         cprint(log, "cyan")
         return None
 
@@ -819,8 +799,7 @@ def plot_image_model(
     xScales = np.linspace(-maxX, maxX, npts)
 
     extent_ima = (
-        np.array((xScales.max(), xScales.min(), xScales.min(), xScales.max()))
-        - pixel_size / 2.0
+        np.array((xScales.max(), xScales.min(), xScales.min(), xScales.max())) - pixel_size / 2.0
     )
 
     vis = vis * conv_psf
@@ -847,9 +826,7 @@ def plot_image_model(
 
     if display:
         plt.figure(figsize=(13, 3.5), dpi=120)
-        plt.subplots_adjust(
-            left=0.05, bottom=0.05, right=0.99, top=1, wspace=0.18, hspace=0.25
-        )
+        plt.subplots_adjust(left=0.05, bottom=0.05, right=0.99, top=1, wspace=0.18, hspace=0.25)
         plt.subplot(1, 4, 1)
         mymap = symmetrical_colormap("gist_earth")
         plt.imshow(im_amp**2, origin="lower", extent=extent_vis, cmap="gist_earth")
@@ -946,9 +923,7 @@ def plot_image_model(
             plt.axis(axis_fov)
         plt.xlabel(r"Relative R.A. [mas]")
         plt.ylabel(r"Relative DEC [mas]")
-        plt.title(
-            "Model convolved B=%im" % base_max, fontsize=12, color="grey", weight="bold"
-        )
+        plt.title(f"Model convolved B={base_max}m", fontsize=12, color="grey", weight="bold")
         plt.subplots_adjust(
             top=0.93, bottom=0.153, left=0.055, right=0.995, hspace=0.24, wspace=0.3
         )
@@ -1027,11 +1002,9 @@ def plot_complex_model(
 
     fig, axs = plt.subplots(1, 3, figsize=(14, 5))
     axs[0].set_title(rf'Model "{modelname}" ($\lambda$ = {wl_model * 1e6:2.2f} $\mu$m)')
-    axs[0].imshow(
-        im_model, norm=PowerNorm(p), origin="lower", extent=extent_im, cmap="afmhot"
-    )
-    axs[0].set_xlabel(r"$\Delta$RA [%s]" % (unit_im))
-    axs[0].set_ylabel(r"$\Delta$DEC [%s]" % (unit_im))
+    axs[0].imshow(im_model, norm=PowerNorm(p), origin="lower", extent=extent_im, cmap="afmhot")
+    axs[0].set_xlabel(rf"$\Delta$RA [{unit_im}]")
+    axs[0].set_ylabel(rf"$\Delta$DEC [{unit_im}]")
 
     axs[1].set_title(r"Squared visibilities (V$^2$)")
     axs[1].imshow(
@@ -1113,9 +1086,7 @@ def plot_spectra(
         spectrum = spectra[i].copy() / tel_trans
         spectrum = spectrum[inbounds]
         wave_bound = wave_cal[inbounds]
-        inCont_bound = (np.abs(wave_bound - lbdBrg) < 0.1) * (
-            np.abs(wave_bound - lbdBrg) > 0.002
-        )
+        inCont_bound = (np.abs(wave_bound - lbdBrg) < 0.1) * (np.abs(wave_bound - lbdBrg) > 0.002)
         nan_interp(spectrum)
         if norm:
             normalize_continuum(spectrum, wave_bound, inCont=inCont_bound)
@@ -1125,10 +1096,7 @@ def plot_spectra(
         l_wave.append(wave_cal[inbounds] - offset)
 
     spec = np.array(l_spec).T
-    if speed:
-        wave = ((np.array(l_wave)[0] - rest) / rest) * c_light / 1e3
-    else:
-        wave = np.array(l_wave)[0]
+    wave = (np.array(l_wave)[0] - rest) / rest * c_light / 1000.0 if speed else np.array(l_wave)[0]
 
     spec_aver = np.mean(spec, axis=1)
 
@@ -1147,7 +1115,9 @@ def plot_spectra(
         for i in range(nbl):
             plt.plot(wave, spec[:, i], lw=1.5, label=tel[i])
         handles, labels = ax.get_legend_handles_labels()
-        labels, handles = zip(*sorted(zip(labels, handles), key=lambda t: t[0]))
+        labels, handles = zip(
+            *sorted(zip(labels, handles, strict=False), key=lambda t: t[0]), strict=False
+        )
         ax.legend(handles, labels, fontsize=7)
 
     if not speed:
@@ -1207,10 +1177,7 @@ def plot_dvis(
 
     bounds2 = [bounds[0], bounds[1]]
 
-    if len(data.flux.shape) == 1:
-        spectrum = data.flux
-    else:
-        spectrum = data.flux.mean(axis=0)
+    spectrum = data.flux if len(data.flux.shape) == 1 else data.flux.mean(axis=0)
 
     # to µm
     wl = data.wl * 1e6
@@ -1257,7 +1224,7 @@ def plot_dvis(
     plt.text(
         0.14,
         0.8,
-        "lcr = %2.2f" % peak_line,
+        f"lcr = {peak_line:2.2f}",
         color="#1e82b8",
         fontsize=10,
         ha="center",
@@ -1293,10 +1260,7 @@ def plot_dvis(
 
         # nan_interp(data_dvis)
 
-        if ft is not None:
-            cont_value = ft.vis2[i][2] ** 0.5
-        else:
-            cont_value = data_dvis[inCont].mean()
+        cont_value = ft.vis2[i][2] ** 0.5 if ft is not None else data_dvis[inCont].mean()
         save_cont_dvis = data_dvis[inCont].mean()
         if not np.isnan(dvis_m):
             X = wl[cond_wl]
@@ -1311,7 +1275,7 @@ def plot_dvis(
                 cont_value + np.std(Y[inCont]),
                 alpha=0.3,
                 color="gray",
-                label=r"$\sigma$=%2.3f" % np.std(Y[inCont]),
+                label=rf"$\sigma$={np.std(Y[inCont]):2.3f}",
             )
             plt.axhline(
                 cont_value,
@@ -1323,7 +1287,7 @@ def plot_dvis(
             plt.text(
                 0.16,
                 0.8,
-                "%s (%i m)" % (blname[i], bl[i]),
+                f"{blname[i]} ({bl[i]} m)",
                 fontsize=8,
                 ha="center",
                 va="center",
@@ -1345,7 +1309,7 @@ def plot_dvis(
             plt.text(
                 0.03,
                 0.8,
-                "%s (%i m)" % (blname[i], bl[i]),
+                f"{blname[i]} ({bl[i]} m)",
                 fontsize=8,
                 ha="left",
                 va="center",
@@ -1373,7 +1337,7 @@ def plot_dvis(
         plt.text(
             0.14,
             0.8,
-            "lcr = %2.2f" % peak_line,
+            f"lcr = {peak_line:2.2f}",
             color="#1e82b8",
             fontsize=10,
             ha="center",
@@ -1415,7 +1379,7 @@ def plot_dvis(
                 np.std(Y[inCont]),
                 alpha=0.3,
                 color="gray",
-                label=r"$\sigma$=%2.1f deg" % np.std(Y[inCont]),
+                label=rf"$\sigma$={np.std(Y[inCont]):2.1f} deg",
             )
             plt.legend(loc=1, fontsize=6)
             dphi_m = Y.mean()
@@ -1423,7 +1387,7 @@ def plot_dvis(
             plt.text(
                 0.03,
                 0.8,
-                "%s (%i m)" % (blname[i], bl[i]),
+                f"{blname[i]} ({bl[i]} m)",
                 fontsize=8,
                 ha="left",
                 va="center",
@@ -1521,9 +1485,7 @@ def plot_mcmc_walker(sampler, param, fitOnly, burnin=100, savedir=None, name="")
     axes[-1].set_xlabel("N iteration")
     plt.subplots_adjust(top=0.98, bottom=0.08, left=0.17, right=0.982)
     if savedir is not None:
-        plt.savefig(
-            savedir + "walkers_{}_{}MCMC.png".format(param["model"], name), dpi=300
-        )
+        plt.savefig(savedir + "walkers_{}_{}MCMC.png".format(param["model"], name), dpi=300)
     return fig
 
 
@@ -1580,10 +1542,8 @@ def plot_mcmc_results(
             raise TypeError("Distance (dpc) is required to compute the radius in AU.")
         ar = dict_mcmc["a"]
         dict_mcmc["$r$"] = ar * dpc  # * 215.0 / 2.0
-        try:
+        with contextlib.suppress(KeyError):
             del dict_mcmc["l$_a$"]
-        except KeyError:
-            pass
         del dict_mcmc["a"]
 
     df = pd.DataFrame(dict_mcmc)
@@ -1604,7 +1564,7 @@ def plot_mcmc_results(
 def plot_pcs(
     pcs,
     modelfile=None,
-    iwl=None,
+    iwl2=None,
     speed=True,
     r=None,
     dpc=None,
@@ -1667,7 +1627,7 @@ def plot_pcs(
         wave2 = wave2[cond_sel & cond_sel_abs]
 
     sns.set_context("talk", font_scale=0.9)
-    tmp_range = [iwl]
+    tmp_range = [iwl2]
     if False:
         tmp_range = range(len(wave))
 
@@ -1707,7 +1667,7 @@ def plot_pcs(
                 plt.text(
                     -50,
                     400,
-                    r"$\lambda$=%2.4f µm" % wave[iwl],
+                    rf"$\lambda$={wave[iwl]:2.4f} µm",
                     va="center",
                     ha="left",
                     color="w",
@@ -1820,21 +1780,20 @@ def plot_pcs(
                 ax.text(
                     110,
                     100,
-                    s=r"$\phi$=%2.2f" % phase,
+                    s=rf"$\phi$={phase:2.2f}",
                     color="k",
                     va="center",
                     ha="left",
                 )
-        else:
-            if phase is not None:
-                ax.text(
-                    410,
-                    400,
-                    s=r"$\phi$=%2.2f" % phase,
-                    color="w",
-                    va="center",
-                    ha="left",
-                )
+        elif phase is not None:
+            ax.text(
+                410,
+                400,
+                s=rf"$\phi$={phase:2.2f}",
+                color="w",
+                va="center",
+                ha="left",
+            )
         ax.set_aspect(aspect=1)
 
         reverse = True
@@ -1842,13 +1801,12 @@ def plot_pcs(
             pass
 
         plt.tight_layout(pad=1.02)
-        import os
 
         if save:
-            tmp_dir = figdir + "tilt=%i/overline_azim=%i/" % (tilt, azim)
+            tmp_dir = f"{figdir}tilt={tilt}/overline_azim={azim}/"
             if not os.path.exists(tmp_dir):
                 os.mkdir(tmp_dir)
-            plt.savefig(tmp_dir + "pcs_iwl=%i_azim=%i.png" % (iwl, azim), dpi=300)
+            plt.savefig(f"{tmp_dir}pcs_iwl={iwl}_azim={azim}.png", dpi=300)
 
     # return fig, ax, image
 
@@ -1856,7 +1814,6 @@ def plot_pcs(
 def plot_pcs_line(
     pcs,
     modelfile=None,
-    iwl=None,
     speed=True,
     dpc=None,
     xlim=50,
@@ -1988,15 +1945,12 @@ def plot_pcs_line(
 
         if save:
             if speed:
-                text_plot = "λ = %2.2f km/s (offset = %i µas)" % (
-                    input_wave[iwl],
-                    offset,
-                )
+                text_plot = f"λ = {input_wave[iwl]:2.2f} km/s (offset = {offset:d} µas)"
             else:
-                text_plot = "λ = %2.2f µm (offset = %i µas)" % (input_wave[iwl], offset)
+                text_plot = f"λ = {input_wave[iwl]:2.2f} µm (offset = {offset:d} µas)"
             color = "#fae39e"
         else:
-            text_plot = "azim = %i deg, r = %2.2f R*" % (azim, radius * 0.140 / 0.0093)
+            text_plot = f"azim = {azim:d} deg, r = {radius * 0.140 / 0.0093:2.2f} R*"
             color = "#70bd7d"
 
         ax.text(
@@ -2016,13 +1970,12 @@ def plot_pcs_line(
         ax.set_xlim(ff * extent[0], ff * extent[1])
         ax.set_ylim(extent[2], extent[3])
         plt.tight_layout()
-        import os
 
         if save:
-            tmp_dir = figdir + "tilt=%i/overline_azim=%i/" % (tilt, azim)
+            tmp_dir = f"{figdir}tilt={tilt}/overline_azim={azim}/"
             if not os.path.exists(tmp_dir):
                 os.mkdir(tmp_dir)
-            plt.savefig(tmp_dir + "pcs_iwl=%i_azim=%i.png" % (iwl, azim), dpi=300)
+            plt.savefig(f"{tmp_dir}pcs_iwl={iwl}_azim={azim}.png", dpi=300)
 
     return fig, ax, image
 
@@ -2139,17 +2092,13 @@ def plot_size_compa_model(
     #     ax.set_ylabel("Photocenter shift [µas]")
     ax.set_aspect("equal", adjustable="box")
 
-    if azim + 90 > 360:
-        tt = (azim + 90) - 360
-
-    else:
-        tt = azim + 90
+    tt = azim + 90 - 360 if azim + 90 > 360 else azim + 90
     phase = (tt) / 360.0
 
     ax.text(
         0.05,
         0.95,
-        "phase = %2.2f" % phase,
+        f"phase = {phase:2.2f}",
         transform=ax.transAxes,
         verticalalignment="top",
         color="w",
@@ -2162,7 +2111,7 @@ def plot_size_compa_model(
     ax.text(
         0.67,
         0.95,
-        r"r$_{ud}$ = %2.2f R$_\ast$" % (r_ud),
+        rf"r$_{{ud}}$ = {r_ud:2.2f} R$_\ast$",
         transform=ax.transAxes,
         verticalalignment="top",
         color=color_ud,
@@ -2172,7 +2121,7 @@ def plot_size_compa_model(
     ax.text(
         0.67,
         0.88,
-        r"r$_{gd}$ = %2.2f R$_\ast$" % (r_gd),
+        rf"r$_{{gd}}$ = {r_gd:2.2f} R$_\ast$",
         transform=ax.transAxes,
         verticalalignment="top",
         color=color_gd,
@@ -2226,7 +2175,7 @@ def plot_size_compa_model(
     ax.text(
         xref + scale / 2,
         yref + 0.004,
-        "%2.2f AU" % scale,
+        f"{scale:2.2f} AU",
         color="w",
         ha="center",
         va="center",
@@ -2302,8 +2251,7 @@ def plot_pco(output_pco, pcs, iwl_pc=0, pc_max=0.2):
     plt.text(
         0.05,
         0.95,
-        "λ = %2.4f µm\npc = %2.1f ± %2.1f µas\nθ = %2.1f ± %2.1f deg"
-        % (
+        "λ = {:2.4f} µm\npc = {:2.1f} ± {:2.1f} µas\nθ = {:2.1f} ± {:2.1f} deg".format(
             wl[iwl_pc],
             pcs["fit_param"][iwl_pc]["best"]["p"] * 1000,
             pcs["fit_param"][iwl_pc]["uncer"]["p"] * 1000,
@@ -2314,7 +2262,7 @@ def plot_pco(output_pco, pcs, iwl_pc=0, pc_max=0.2):
         verticalalignment="top",
         bbox=props,
     )
-    plt.plot(x_pc_mod, y_pc_mod, lw=1, label="Projected shift (chi2=%2.2f)" % chi2)
+    plt.plot(x_pc_mod, y_pc_mod, lw=1, label=f"Projected shift (chi2={chi2:2.2f})")
     plt.fill_between(x_pc_mod, y_pc_mod1, y_pc_mod2, alpha=0.5)
     plt.legend(fontsize=8, loc=1)
     plt.axhline(0, lw=1, color="gray")
@@ -2378,9 +2326,7 @@ def plot_cvis_pure(pure, flc, phi_max=5, vis_range=None, rr=10):
         capsize=1,
     )
     plt.plot(wl_model, flux_model, lw=1)
-    plt.fill_between(
-        wl_model, flux_model - e_flux, flux_model + e_flux, color="orange", alpha=0.3
-    )
+    plt.fill_between(wl_model, flux_model - e_flux, flux_model + e_flux, color="orange", alpha=0.3)
     plt.ylabel("Norm. flux")
 
     plt.xlim(line_fitted - rr * w_fitted, line_fitted + rr * w_fitted)
@@ -2500,7 +2446,7 @@ def _update_color_bl(tab):
     array_name = data.info["Array"]
     nbl_master = len(set(data.blname))
 
-    if (array_name == "CHARA") or (array_name == "g7"):
+    if array_name in {"CHARA", "g7"}:
         unknown_color = plt.cm.turbo(np.linspace(0, 1, nbl_master))
     else:
         unknown_color = plt.cm.Set2(np.linspace(0, 1, 21))
@@ -2511,7 +2457,7 @@ def _update_color_bl(tab):
         nbl = data.blname.shape[0]
         for i in range(nbl):
             base = data.blname[i]
-            if base not in dic_color.keys():
+            if base not in dic_color:
                 dic_color[base] = unknown_color[i_cycle]
                 i_cycle += 1
     return dic_color
@@ -2522,7 +2468,7 @@ def _create_match_tel(data):
     for i in range(len(data.index_ref)):
         ind = data.index_ref[i]
         tel = data.teles_ref[i]
-        if ind not in dic_index.keys():
+        if ind not in dic_index:
             dic_index[ind] = tel
     return dic_index
 
@@ -2556,7 +2502,7 @@ def plot_tellu(label=None, plot_ind=False, val=5000, lw=0.5):
 
 def _plot_uvdata_coord(tab, ax=None, rotation=0, ms=4):
     """Plot u-v coordinated of a bunch of data (see `plot_uv()`)."""
-    if (type(tab) != list) & (type(tab) != np.ndarray):
+    if (type(tab) is not list) & (type(tab) is not np.ndarray):
         tab = [tab]
 
     dic_color = _update_color_bl(tab)
@@ -2584,7 +2530,6 @@ def _plot_uvdata_coord(tab, ax=None, rotation=0, ms=4):
             vm = np.squeeze(u * np.sin(angle) + v * np.cos(angle))
             ax.plot(um, vm, color=p_color, label=label, marker="o", ms=ms, zorder=20)
             ax.plot(-um, -vm, ms=ms, color=p_color, marker="d", zorder=20)
-    return None
 
 
 def _plot_v2_residuals(
@@ -2608,10 +2553,7 @@ def _plot_v2_residuals(
     for d in data:
         for k in input_keys:
             nbl = d.vis2.shape[0]
-            if len(d.vis2.shape) == 1:
-                nwl = 1
-            else:
-                nwl = d.vis2.shape[1]
+            nwl = 1 if len(d.vis2.shape) == 1 else d.vis2.shape[1]
             if k == "wl":
                 for _ in range(nbl):
                     dict_obs[k].extend(np.round(d[k] * 1e6, 3))
@@ -2635,7 +2577,7 @@ def _plot_v2_residuals(
     flag_nan = np.isnan(np.array(dict_obs["vis2"]))
 
     if use_flag:
-        for k in dict_obs.keys():
+        for k in dict_obs:
             dict_obs[k] = np.array(dict_obs[k])[~flag & ~flag_nan]
 
     df = pd.DataFrame(dict_obs)
@@ -2645,9 +2587,8 @@ def _plot_v2_residuals(
     chi2_vis2_full = np.sum((df["vis2"] - df["mod"]) ** 2 / (df["e_vis2"]) ** 2)
     chi2_vis2 = chi2_vis2_full / (len(df["e_vis2"]) - (d_freedom - 1))
 
-    label = "DATA"
     if hue == "wl":
-        label = "Wavelenght [µm]"
+        pass
 
     # palette = {"Fri": "#F72585", "Sun": "#4CC9F0", "Sat": "#7209B7", "Thur": "#3A0CA3"}
 
@@ -2690,7 +2631,7 @@ def _plot_v2_residuals(
                 marker="p",
                 # s=12,
                 alpha=0.4,
-                label=r"MODEL ($\chi^2_r=%2.2f$)" % chi2_vis2,
+                label=rf"MODEL ($\chi^2_r={chi2_vis2:2.2f}$)",
                 ax=axd["vis2"],
             )
         else:
@@ -2789,10 +2730,7 @@ def _plot_cp_residuals(
     for d in data:
         for k in input_keys:
             nbl = d.cp.shape[0]
-            if len(d.cp.shape) == 1:
-                nwl = 1
-            else:
-                nwl = d.cp.shape[1]
+            nwl = 1 if len(d.cp.shape) == 1 else d.cp.shape[1]
             if k == "wl":
                 for _ in range(nbl):
                     dict_obs[k].extend(np.round(d[k] * 1e6, 3))
@@ -2814,7 +2752,7 @@ def _plot_cp_residuals(
     if use_flag:
         flag = np.array(dict_obs["flag_cp"])
         flag_nan = np.isnan(np.array(dict_obs["cp"]))
-        for k in dict_obs.keys():
+        for k in dict_obs:
             dict_obs[k] = np.array(dict_obs[k])[~flag & ~flag_nan]
 
     df = pd.DataFrame(dict_obs)
@@ -2837,9 +2775,8 @@ def _plot_cp_residuals(
             [["cp"], ["res_cp"]],
             gridspec_kw={"height_ratios": [3, 1]},
         )
-        label = "DATA"
         if hue == "wl":
-            label = "Wavelenghts [µm]"
+            pass
         ax = sns.scatterplot(
             x="freq_cp",
             y="cp",
@@ -2863,7 +2800,7 @@ def _plot_cp_residuals(
             alpha=0.7,
             marker="^",
             ls="-",
-            label=r"MODEL ($\chi^2_r=%2.2f$)" % chi2_cp,
+            label=rf"MODEL ($\chi^2_r={chi2_cp:2.2f}$)",
             ax=axd["cp"],
         )
 
@@ -2990,9 +2927,7 @@ def symmetrical_colormap(cmap_settings, new_name=None):
 
     # get the list of color from colormap
     colors_r = cmap(np.linspace(0, 1, n))  # take the standard colormap # 'right-part'
-    colors_l = colors_r[
-        ::-1
-    ]  # take the first list of color and flip the order # "left-part"
+    colors_l = colors_r[::-1]  # take the first list of color and flip the order # "left-part"
 
     # combine them and build a new colormap
     colors = np.vstack((colors_l, colors_r))
@@ -3029,7 +2964,9 @@ def _summary_corner_sns(x, prec=2, color="#ee9068", **kwargs):
     }
     mcmc = np.percentile(x, [16, 50, 84])
     q = np.diff(mcmc)
-    txt = r"{3} = {0:.%if}$_{{-{1:.%if}}}^{{+{2:.%if}}}$ {4}" % (prec, prec, prec)
+    txt = r"{3} = {0:.{prec}f}$_{{-{1:.{prec}f}}}^{{+{2:.{prec}f}}}$ {4}".format(
+        mcmc[1], q[0], q[1], x.name, t_unit.get(x.name, ""), prec=prec
+    )
     try:
         txt = txt.format(mcmc[1], q[0], q[1], x.name, t_unit[x.name])
     except KeyError:
@@ -3104,7 +3041,7 @@ def plot_diffobs_model(dobs, data, dobs_full=None, speed=False):
     plt.text(
         0.05,
         0.3,
-        "%s (%i m)" % (data.blname[dobs.ibl], data.bl[dobs.ibl]),
+        f"{data.blname[dobs.ibl]} ({data.bl[dobs.ibl]} m)",
         transform=frame2.transAxes,
         fontsize=13,
         verticalalignment="top",
@@ -3158,10 +3095,7 @@ def plot_image_model_pcs(
     wl_model = np.linspace(wl0, wl0 + delta_wl * (n_wl - 1), n_wl)
     idx = find_nearest(wl_model, pcs["wl"][iwl])
 
-    if flip:
-        image = np.fliplr(cube[idx])
-    else:
-        image = cube[idx]
+    image = np.fliplr(cube[idx]) if flip else cube[idx]
 
     # axes_rot = (1, 2)
     image = rotate(image, -rotation, reshape=False)
@@ -3177,10 +3111,7 @@ def plot_image_model_pcs(
     l_cmass = []
     for x in pcs["wl"]:
         idx = find_nearest(wl_model, x)
-        if flip:
-            tmp = np.fliplr(cube[idx].copy())
-        else:
-            tmp = cube[idx].copy()
+        tmp = np.fliplr(cube[idx].copy()) if flip else cube[idx].copy()
         if sub_cont:
             tmp -= im_cont
         tmp = rotate(tmp, -rotation, reshape=False)
@@ -3205,8 +3136,7 @@ def plot_image_model_pcs(
         plt.text(
             0.05,
             0.95,
-            "λ = %2.4f µm\npc = %2.1f ± %2.1f µas\nθ = %2.1f ± %2.1f deg"
-            % (
+            "λ = {:2.4f} µm\npc = {:2.1f} ± {:2.1f} µas\nθ = {:2.1f} ± {:2.1f} deg".format(
                 pcs["wl"][iwl],
                 pcs["fit_param"][iwl]["best"]["p"],
                 pcs["fit_param"][iwl]["uncer"]["p"],
@@ -3294,10 +3224,7 @@ def plot_model_RT(
     wl_model = np.linspace(wl0, wl0 + delta_wl * (n_wl - 1), n_wl)
     idx = find_nearest(wl_model, pcs["wl"][iwl])
 
-    if flip:
-        image = np.fliplr(cube[idx])
-    else:
-        image = cube[idx]
+    image = np.fliplr(cube[idx]) if flip else cube[idx]
 
     # axes_rot = (1, 2)
     image = rotate(image, -rotation, reshape=False)
@@ -3366,7 +3293,7 @@ def fit_ellipse(x, y):
     M = S1 + S2 @ T
     C = np.array(((0, 0, 2), (0, -1, 0), (2, 0, 0)), dtype=float)
     M = np.linalg.inv(C) @ M
-    eigval, eigvec = np.linalg.eig(M)
+    _eigval, eigvec = np.linalg.eig(M)
     con = 4 * eigvec[0] * eigvec[2] - eigvec[1] ** 2
     ak = eigvec[:, np.nonzero(con > 0)[0]]
     return np.concatenate((ak, T @ ak)).ravel()
@@ -3396,9 +3323,7 @@ def cart_to_pol(coeffs):
 
     den = b**2 - a * c
     if den > 0:
-        raise ValueError(
-            "coeffs do not represent an ellipse: b^2 - 4ac must" " be negative!"
-        )
+        raise ValueError("coeffs do not represent an ellipse: b^2 - 4ac must be negative!")
 
     # The location of the ellipse centre.
     x0, y0 = (c * d - b * f) / den, (a * f - b * d) / den
@@ -3444,7 +3369,7 @@ def get_ellipse_pts(params, npts=100, tmin=0, tmax=2 * np.pi):
 
     """
 
-    x0, y0, ap, bp, e, phi = params
+    x0, y0, ap, bp, _e, phi = params
     # A grid of the parametric variable, t.
     t = np.linspace(tmin, tmax, npts)
     x = x0 + ap * np.cos(t) * np.cos(phi) - bp * np.sin(t) * np.sin(phi)
@@ -3510,7 +3435,7 @@ def plot_dphi_time(d, vel_max=140, dphi_max=4, restframe=2.1662, fig=None):
         dic_sub[l_blname[i]] = i + 1
     l_blname = np.array(l_blname)
 
-    if (type(d) != list) & (type(d) != np.ndarray):
+    if (type(d) is not list) & (type(d) is not np.ndarray):
         tab = [d]
     dic_color = _update_color_bl(tab)
 
@@ -3567,14 +3492,10 @@ def plot_dphi_time(d, vel_max=140, dphi_max=4, restframe=2.1662, fig=None):
 
     N = len(l1)
     if ins == "GRAVITY":
-        plt.rcParams["axes.prop_cycle"] = plt.cycler(
-            "color", plt.cm.Spectral(np.linspace(0, 1, N))
-        )
+        plt.rcParams["axes.prop_cycle"] = plt.cycler("color", plt.cm.Spectral(np.linspace(0, 1, N)))
         cmap = "Spectral"
     else:
-        plt.rcParams["axes.prop_cycle"] = plt.cycler(
-            "color", plt.cm.cool(np.linspace(0, 1, N))
-        )
+        plt.rcParams["axes.prop_cycle"] = plt.cycler("color", plt.cm.cool(np.linspace(0, 1, N)))
         cmap = "cool"
 
     for i in range(6):
@@ -3635,23 +3556,20 @@ def plot_dphi_time(d, vel_max=140, dphi_max=4, restframe=2.1662, fig=None):
     # cbar.ax.xaxis.set_ticks_position("top")
     # ax.set_aspect("equal", adjustable="box")
     # plt.yticks(np.array([-2, 0, 2]))
-    plt.subplots_adjust(
-        right=right, top=top, hspace=0.09, wspace=0.06, bottom=bottom, left=left
-    )
+    plt.subplots_adjust(right=right, top=top, hspace=0.09, wspace=0.06, bottom=bottom, left=left)
     return fig
 
 
 def plot_condition(l_mjd, l_seeing, l_tau, tau_min=3, seeing_max=1, tau_lim=10):
     """Plot weather conditions of the observation: seeing [arcsec] and
     coherence times [ms]."""
-    from astropy.time import Time
 
     # sns.set_theme(color_codes=True)
     # sns.set_context("talk", font_scale=0.9)
 
     time_obs = Time(np.array(l_mjd), format="mjd").datetime
 
-    print("Weather conditions over %i files" % len(l_mjd))
+    print(f"Weather conditions over {len(l_mjd)} files")
     print("------------------------")
     print(f"mjd = {round(np.mean(l_mjd), 2)}")
     l_seeing = np.array(l_seeing)
@@ -3683,14 +3601,14 @@ def plot_condition(l_mjd, l_seeing, l_tau, tau_min=3, seeing_max=1, tau_lim=10):
         time_obs[cond_tau & ~cond_seeing],
         l_tau[cond_tau & ~cond_seeing],
         color="#d1e67f",
-        label="tau0 > %i ms" % tau_min,
+        label=f"tau0 > {tau_min} ms",
         **scat_style,
     )
     plt.scatter(
         time_obs[cond_tau & cond_seeing],
         l_tau[cond_tau & cond_seeing],
         color="g",
-        label="tau0 > %i ms & seeing < %i arcsec" % (tau_min, seeing_max),
+        label=f"tau0 > {tau_min} ms & seeing < {seeing_max} arcsec",
         **scat_style,
     )
 
@@ -3709,9 +3627,7 @@ def plot_condition(l_mjd, l_seeing, l_tau, tau_min=3, seeing_max=1, tau_lim=10):
     plt.axhline(3, color="coral", ls="--", lw=1)
     plt.axhline(5.2, color="coral", ls="--", lw=1)
     plt.axhline(4.1, color="coral", ls="--", lw=1)
-    plt.text(
-        time_obs[0], 5.2 + 0.01, "Very good", ha="left", va="bottom", color="coral"
-    )
+    plt.text(time_obs[0], 5.2 + 0.01, "Very good", ha="left", va="bottom", color="coral")
     plt.text(time_obs[0], 4.1 + 0.01, "Good", ha="left", va="bottom", color="coral")
     plt.text(time_obs[0], 3 - 0.1, "Fast", ha="left", va="top", color="coral")
     plt.ylabel("Coherence time [ms]")
@@ -3726,7 +3642,7 @@ def plot_condition(l_mjd, l_seeing, l_tau, tau_min=3, seeing_max=1, tau_lim=10):
         time_obs[cond_seeing],
         l_seeing[cond_seeing],
         color="g",
-        label="seeing < %i arcsec" % seeing_max,
+        label=f"seeing < {seeing_max} arcsec",
         **scat_style,
     )
     plt.scatter(
@@ -3758,13 +3674,9 @@ def plot_condition(l_mjd, l_seeing, l_tau, tau_min=3, seeing_max=1, tau_lim=10):
     plt.axhspan(1, 1.2, alpha=0.2, color="orange")
     plt.text(time_obs[0], 1 - 0.03, "50%", ha="right", va="top", color="y", fontsize=fs)
     plt.axhspan(0.8, 1, alpha=0.2, color="y")
-    plt.text(
-        time_obs[0], 0.8 - 0.03, "30%", ha="right", va="top", color="g", fontsize=fs
-    )
+    plt.text(time_obs[0], 0.8 - 0.03, "30%", ha="right", va="top", color="g", fontsize=fs)
     plt.axhspan(0.6, 0.8, alpha=0.2, color="g")
-    plt.text(
-        time_obs[0], 0.6 - 0.03, "10%", ha="right", va="top", color="b", fontsize=fs
-    )
+    plt.text(time_obs[0], 0.6 - 0.03, "10%", ha="right", va="top", color="b", fontsize=fs)
     plt.axhspan(0.1, 0.6, alpha=0.2, color="b")
     plt.ylim(0.0, 1.9)
     plt.gcf().autofmt_xdate()
@@ -3783,9 +3695,6 @@ def plot_condition(l_mjd, l_seeing, l_tau, tau_min=3, seeing_max=1, tau_lim=10):
 def _plot_ind_phase(
     i_phase, list_dataset, l_ax_phi, dvel=500, wl0=2.1661, range_dphi=5, speed=True
 ):
-    import oimalib
-    from oimalib.pcs import convert_ind_data
-
     for ifile in range(len(list_dataset)):
         dataset = convert_ind_data(list_dataset[ifile], corr_tellu=False, wave_lim=None)
         blname = dataset.blname[i_phase]
@@ -3794,9 +3703,7 @@ def _plot_ind_phase(
         eff_wave = dataset.wl * 1e6
         inCont = (np.abs(eff_wave - wl0) < 0.1) * (np.abs(eff_wave - wl0) > 0.004)
 
-        dphi, e_dphi = oimalib.data_processing.normalize_dphi_continuum(
-            i_phase, dataset, inCont=inCont, lbdBrg=wl0
-        )
+        dphi, _e_dphi = normalize_dphi_continuum(i_phase, dataset, inCont=inCont, lbdBrg=wl0)
 
         # rms_dphi = np.sqrt(np.mean(np.square(dphi[inCont])))
         # print("error dphi ind %s" % blname, round(e_dphi.mean(), 3), round(rms_dphi, 3))
@@ -3819,12 +3726,8 @@ def _plot_ind_vis(
     check_weird_file=False,
     cont_vis_ref=1,
 ):
-    from oimalib.pcs import convert_ind_data
-
     for ifile in range(len(list_dataset)):
-        dataset = convert_ind_data(
-            list_dataset[ifile], corr_tellu=False, wave_lim=wave_lim
-        )
+        dataset = convert_ind_data(list_dataset[ifile], corr_tellu=False, wave_lim=wave_lim)
         blname = dataset.blname[i_phase]
         p_color = dic_color[blname]
 
@@ -3836,10 +3739,7 @@ def _plot_ind_vis(
 
         ax.set_xlim(-dvel, dvel)
         cond_vel = (wave_vel >= -dvel) & (wave_vel <= dvel)
-        if plot_vis2:
-            y = dataset.vis2[i_phase] ** 0.5
-        else:
-            y = dataset.dvis[i_phase]
+        y = dataset.vis2[i_phase] ** 0.5 if plot_vis2 else dataset.dvis[i_phase]
         if check_weird_file:
             ax.text(170, y[cond_vel].min(), ifile)
 
@@ -3858,9 +3758,6 @@ def plot_data_paper(
     use_vis2=False,
 ):
     """Plot the differential data over a dataset list."""
-    import matplotlib.gridspec as gridspec
-
-    from oimalib.data_processing import normalize_dphi_continuum
 
     err_pts_style_paper = {
         "linestyle": "None",
@@ -3952,8 +3849,8 @@ def plot_data_paper(
 
             rms_dphi = np.sqrt(np.mean(np.square(aver_dphi[inCont])))
             print(
-                "[INFO] uncertainty rms of the aver. differential phase for BL %s = %.3f deg"
-                % (blname, rms_dphi)
+                f"[INFO] uncertainty rms of the aver. differential phase for BL {blname} "
+                f"= {rms_dphi:.3f} deg"
             )
 
             l_ax_phi[i].errorbar(
@@ -4047,10 +3944,7 @@ def plot_data_paper(
         blname = d_master.blname[i]
         p_color = dic_color[blname]
 
-        if use_vis2:
-            aver_dvis = d_master.vis2[i] ** 0.5
-        else:
-            aver_dvis = d_master.dvis[i]
+        aver_dvis = d_master.vis2[i] ** 0.5 if use_vis2 else d_master.dvis[i]
         ref_dvis = np.mean(aver_dvis[inCont])
 
         norm_ref_dvis = False
@@ -4091,7 +3985,8 @@ def plot_data_paper(
         ax.axvspan(-500, -limit_inline, alpha=0.5, color="lightgray")
 
         ax.set_ylabel("Diff. Vis.")
-        if i == 5:
+        magic_value = 5
+        if i == magic_value:
             ax.set_xlabel("Velocity [km/s]")
 
     return fig
@@ -4118,7 +4013,7 @@ def plot_plvis(Model, bl=0):
     a0.axvline(Model.lam0, alpha=0.2, color="k")
     a0.set_ylabel("Norm. flux")
     _hide_ticks(a0, y=False)
-    a1.plot(Model.wl, np.squeeze(Model.tv)[bl], label="B = %2.1f m" % Model.bl[bl])
+    a1.plot(Model.wl, np.squeeze(Model.tv)[bl], label=f"B = {Model.bl[bl]:2.1f} m")
     a1.scatter(
         Model.wl[cond_pure],
         np.squeeze(Model.plvisamp)[bl],

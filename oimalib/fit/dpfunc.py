@@ -4,6 +4,7 @@ with dpfit.py
 
 author: amerand@eso.org
 """
+
 import numpy as np
 
 
@@ -162,7 +163,7 @@ def ellipse(xy, param):
         _x = xy[0][k] - param["x0"]
         _y = xy[1][k] - param["y0"]
         # t0 = np.arctan2(_x, _y)
-        t0 = np.arccos(_x / np.sqrt(_x ** 2 + _y ** 2)) * np.sign(_y)
+        t0 = np.arccos(_x / np.sqrt(_x**2 + _y**2)) * np.sign(_y)
 
         t.append(t0)
     t = np.array(t)
