@@ -54,6 +54,10 @@ dev = [
     "ipykernel",
 ]
 
+[dependency-groups]
+typecheck = ["mypy>=1.14.1", "types-termcolor>=1.1.6.2"]
+test = ["pytest>=7.2.1"]
+
 [project.urls]
 Homepage = "https://github.com/DrSoulain/oimalib"
 Issues = "https://github.com/DrSoulain/oimalib/issues"
