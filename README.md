@@ -5,7 +5,7 @@ oimalib is a package to analyze and modelize optical interferometry data. This p
 ## Installation
 
 ```shell
-python3 -m pip install .
+python -m pip install .
 ```
 
 ## What can oimalib do for you ?
