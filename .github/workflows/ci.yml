@@ -39,7 +39,7 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
     - name: Build
-      run: uv sync --no-editable --group test ${{ matrix.sync-args }}
+      run: uv sync --no-editable --group test #${{ matrix.sync-args }}
     - name: Run tests
       run: |
         uv run --no-sync pytest -q \
