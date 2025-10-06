@@ -1,13 +1,15 @@
 [build-system]
-requires = ["setuptools",  "setuptools-scm", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/oimalib"]
 
 [project]
 name = "oimalib"
-version = "0.2"
-authors = [
-    { name = "Anthony Soulain", email = "anthony.soulain@univ-grenoble-alpes.fr" },
-]
+version = "0.3"
+description = "Optical Interferometry Modelling and Analysis Library"
+authors = [{ name = "Anthony Soulain", email = "anthony.soulain@oca.eu" }]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
@@ -20,7 +22,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Astronomy",
     "Typing :: Typed",
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "astropy",
     "astroquery",
@@ -36,55 +38,77 @@ dependencies = [
     "seaborn",
     "munch",
     "pandas",
+    "termcolor",
+    "tqdm",
 ]
+
+[project.scripts]
+oimalib = "oimalib._cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "coverage>=7",
+    "ruff>=0.6.0",
+    "basedpyright>=1.19.0",
+    "ipykernel",
+]
+
+[project.urls]
+Homepage = "https://github.com/DrSoulain/oimalib"
+Issues = "https://github.com/DrSoulain/oimalib/issues"
 
 [project.readme]
 file = "README.md"
 content-type = "text/markdown"
 
 [tool.setuptools]
-license-files = [
-    "LICENSE",
-]
+license-files = ["LICENSE"]
 include-package-data = false
 
 [tool.setuptools.packages.find]
-exclude = [
-    "tests*",
-    "doc*",
-]
+exclude = ["tests*", "doc*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-oimalib = [
-    "internal_data/*.fits",
-]
+oimalib = ["internal_data/*.fits"]
 
 [tool.black]
 line-length = 88
 
-[tool.pytest.ini_options]
-markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-]
-
 [tool.ruff]
-target-version = "py38" # https://github.com/charliermarsh/ruff/issues/2039
-exclude = ["*__init__.py"]
-ignore = ["E501"]
-select = [
-    "E",
-    "F",
-    "W",
-    "B",
-    "I",
-    "UP",
-]
+line-length = 100
+target-version = "py311"
+lint.select = ["E", "F", "I", "B", "UP", "PGH", "RUF"]
+lint.ignore = ["E501"]
+fix = true
+unsafe-fixes = true
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 combine-as-imports = true
+known-first-party = ["oimalib"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401", "F403"]
+
+[tool.basedpyright]
+typeCheckingMode = "standard"
+pythonVersion = "3.11"
+reportMissingTypeStubs = "warning"
+venvPath = "."
+venv = ".venv"
+exclude = ["tests/**"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-q"
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
+
+[tool.coverage.run]
+branch = true
+source = ["oimalib"]
 
 [tool.coverage.report]
-omit = [
-  "oimalib/tests/*"
-]
+omit = ["oimalib/tests/*"]
